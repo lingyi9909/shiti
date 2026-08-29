@@ -17,25 +17,15 @@ class TextBoxEvidence:
 
 def find_textboxes(element: ET.Element) -> tuple[TextBoxEvidence, ...]:
     evidence: list[TextBoxEvidence] = []
-    for textbox in element.iter(f"{V}textbox"):
-        content = textbox.find(f"{W}txbxContent")
-        if content is None:
-            continue
-        text = "".join(node.text or "" for node in content.iter(f"{W}t"))
-        parent_shape = _nearest_shape_style(textbox, element)
-        evidence.append(
-            TextBoxEvidence(text=text, anchor_hint=parent_shape or "paragraph")
-        )
     for content in element.iter(f"{W}txbxContent"):
         text = "".join(node.text or "" for node in content.iter(f"{W}t"))
-        if any(item.text == text for item in evidence):
-            continue
-        evidence.append(TextBoxEvidence(text=text, anchor_hint="paragraph"))
+        anchor_hint = _nearest_shape_style(content, element) or "paragraph"
+        evidence.append(TextBoxEvidence(text=text, anchor_hint=anchor_hint))
     return tuple(evidence)
 
 
-def _nearest_shape_style(textbox: ET.Element, root: ET.Element) -> str | None:
+def _nearest_shape_style(descendant: ET.Element, root: ET.Element) -> str | None:
     for shape in root.iter(f"{V}shape"):
-        if textbox in tuple(shape.iter()):
+        if descendant in tuple(shape.iter()):
             return shape.attrib.get("style") or shape.attrib.get("id")
     return None
