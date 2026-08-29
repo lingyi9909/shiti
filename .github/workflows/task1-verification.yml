@@ -8,7 +8,10 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact Task 1 head
+        uses: actions/checkout@v4
+        with:
+          ref: 2c7ea6b923a33af3b7c1ef5ee36f0eac23804f0d
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
