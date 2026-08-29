@@ -47,8 +47,8 @@ def parse_table(table: ET.Element) -> ParsedTable:
     for row_index, row in enumerate(table.findall(f"{W}tr")):
         row_values: list[str] = []
         col = 0
-        for cell in row.findall(f"{W}tc"):
-            props = cell.find(f"{W}tcPr")
+        for cell_element in row.findall(f"{W}tc"):
+            props = cell_element.find(f"{W}tcPr")
             colspan = 1
             vmerge: str | None = None
             if props is not None:
@@ -59,7 +59,7 @@ def parse_table(table: ET.Element) -> ParsedTable:
                 if vmerge_node is not None:
                     vmerge = vmerge_node.attrib.get(f"{W}val", "continue")
 
-            text, kinds, rel_ids, contents = _cell_content(cell)
+            text, kinds, rel_ids, contents = _cell_content(cell_element)
             continuation = vmerge == "continue"
             parsed = ParsedCell(
                 row=row_index,
@@ -87,26 +87,26 @@ def parse_table(table: ET.Element) -> ParsedTable:
 
     adjusted: list[ParsedCell] = []
     merges: list[dict[str, int]] = []
-    for index, cell in enumerate(cells):
+    for index, parsed_cell in enumerate(cells):
         rowspan = merge_rows.get(index, 1)
         updated = ParsedCell(
-            row=cell.row,
-            col=cell.col,
-            text=cell.text,
-            colspan=cell.colspan,
+            row=parsed_cell.row,
+            col=parsed_cell.col,
+            text=parsed_cell.text,
+            colspan=parsed_cell.colspan,
             rowspan=rowspan,
-            content_kinds=cell.content_kinds,
-            relationship_ids=cell.relationship_ids,
-            contents=cell.contents,
-            vertical_continuation=cell.vertical_continuation,
+            content_kinds=parsed_cell.content_kinds,
+            relationship_ids=parsed_cell.relationship_ids,
+            contents=parsed_cell.contents,
+            vertical_continuation=parsed_cell.vertical_continuation,
         )
         adjusted.append(updated)
-        if cell.colspan > 1 or rowspan > 1:
+        if parsed_cell.colspan > 1 or rowspan > 1:
             merges.append(
                 {
-                    "row": cell.row,
-                    "col": cell.col,
-                    "colspan": cell.colspan,
+                    "row": parsed_cell.row,
+                    "col": parsed_cell.col,
+                    "colspan": parsed_cell.colspan,
                     "rowspan": rowspan,
                 }
             )
