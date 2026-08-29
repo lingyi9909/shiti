@@ -1,6 +1,6 @@
 from question_builder.parser.docx.numbering import NumberingResolver
 
-NUMBERING_XML = b"""<?xml version='1.0' encoding='UTF-8'?>
+NUMBERING_XML = """<?xml version='1.0' encoding='UTF-8'?>
 <w:numbering xmlns:w='http://schemas.openxmlformats.org/wordprocessingml/2006/main'>
   <w:abstractNum w:abstractNumId='0'>
     <w:lvl w:ilvl='0'><w:start w:val='1'/><w:numFmt w:val='decimal'/><w:lvlText w:val='%1.'/></w:lvl>
@@ -16,7 +16,7 @@ NUMBERING_XML = b"""<?xml version='1.0' encoding='UTF-8'?>
   <w:num w:numId='11'><w:abstractNumId w:val='1'/></w:num>
   <w:num w:numId='12'><w:abstractNumId w:val='2'/></w:num>
 </w:numbering>
-"""
+""".encode()
 
 
 def test_resolves_decimal_and_multilevel_labels() -> None:
