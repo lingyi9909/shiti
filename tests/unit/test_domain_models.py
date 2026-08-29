@@ -10,7 +10,6 @@ from question_builder.domain.matching import MatchedQuestion, MatchEvidence
 from question_builder.domain.quality import RejectedRecord, RejectReason
 from question_builder.domain.question import QuestionCandidate
 
-
 FINAL_FIELDS = {
     "text_question",
     "is_pic_included",
