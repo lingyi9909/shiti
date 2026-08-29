@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Literal, Never, TypeVar, cast
+from typing import Any, Literal, Never, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-
-T = TypeVar("T")
 
 BlockType = Literal[
     "paragraph",
@@ -51,7 +49,7 @@ class FrozenDict(dict[str, Any]):
         self._immutable()
 
 
-def freeze_value(value: T) -> T:
+def freeze_value[T](value: T) -> T:
     """Recursively freeze mutable containers while preserving serializable shapes."""
 
     if isinstance(value, dict):

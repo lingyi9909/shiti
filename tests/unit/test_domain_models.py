@@ -6,8 +6,8 @@ from pydantic import ValidationError
 from question_builder.domain.answer import AnswerCandidate
 from question_builder.domain.document import ContentBlock, DocumentIR
 from question_builder.domain.final import FinalQuestionRecord
-from question_builder.domain.matching import MatchEvidence, MatchedQuestion
-from question_builder.domain.quality import RejectReason, RejectedRecord
+from question_builder.domain.matching import MatchedQuestion, MatchEvidence
+from question_builder.domain.quality import RejectedRecord, RejectReason
 from question_builder.domain.question import QuestionCandidate
 
 
