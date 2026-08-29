@@ -196,7 +196,7 @@ def _append_table_block(
         )
     )
     for unresolved in unresolved_items:
-        relationship_id = unresolved.get("relationship_id")
+        unresolved_relationship_id = unresolved.get("relationship_id")
         blocks.append(
             _block(
                 blocks,
@@ -204,7 +204,9 @@ def _append_table_block(
                 str(unresolved.get("raw_text", "")),
                 source_path,
                 relationship_id=(
-                    relationship_id if isinstance(relationship_id, str) else None
+                    unresolved_relationship_id
+                    if isinstance(unresolved_relationship_id, str)
+                    else None
                 ),
                 metadata={
                     **unresolved,
