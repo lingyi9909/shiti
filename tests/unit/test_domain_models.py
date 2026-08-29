@@ -211,6 +211,82 @@ def test_domain_contract_is_immutable_including_nested_block_collections() -> No
     assert isinstance(evidence.answer_source_blocks, tuple)
 
 
+def test_content_block_json_round_trip_preserves_content_and_immutability() -> None:
+    content = ContentBlock(
+        block_id="b1",
+        order=1,
+        type="paragraph",
+        numbering={"resolved_label": "1.", "nested": {"level": 1}},
+        recognized={"text": "题干", "confidence": 0.99},
+        metadata={"tags": ["source"], "origin": {"page": 3}},
+    )
+
+    payload = content.model_dump_json()
+    restored = ContentBlock.model_validate_json(payload)
+
+    assert json.loads(payload)["metadata"] == {"tags": ["source"], "origin": {"page": 3}}
+    assert restored == content
+    with pytest.raises(TypeError):
+        restored.metadata["origin"]["page"] = 4  # type: ignore[index]
+
+
+def test_document_ir_json_round_trip_preserves_nested_block_content() -> None:
+    content = ContentBlock(
+        block_id="b1",
+        order=1,
+        type="paragraph",
+        metadata={"tags": ["source"], "origin": {"page": 3}},
+    )
+    document = DocumentIR(
+        document_id="doc_1",
+        source_file="paper.docx",
+        source_sha256="a" * 64,
+        blocks=[content],
+    )
+
+    payload = document.model_dump_json()
+    restored = DocumentIR.model_validate_json(payload)
+
+    assert restored == document
+    with pytest.raises(TypeError):
+        restored.blocks[0].metadata["origin"]["page"] = 4  # type: ignore[index]
+
+
+def test_match_evidence_json_round_trip_preserves_immutable_evidence() -> None:
+    evidence = MatchEvidence(
+        question_candidate_id="qc_1",
+        answer_candidate_id="ac_1",
+        match_score=0.999,
+        question_source_blocks=["b1"],
+        answer_source_blocks=["a1"],
+        evidence={"rule": "same_number", "verified": True, "margin": 0.2},
+    )
+
+    payload = evidence.model_dump_json()
+    restored = MatchEvidence.model_validate_json(payload)
+
+    assert restored == evidence
+    with pytest.raises(TypeError):
+        restored.evidence["rule"] = "tampered"
+
+
+def test_rejected_record_json_round_trip_preserves_nested_immutable_details() -> None:
+    rejected = RejectedRecord(
+        candidate_id="qc_1",
+        stage="answer_matching",
+        reason_code=RejectReason.ANSWER_MATCH_AMBIGUOUS,
+        details={"scores": {"top1": 0.996, "top2": 0.991}, "candidates": ["a1", "a2"]},
+        source_files=["paper.docx", "answer.docx"],
+    )
+
+    payload = rejected.model_dump_json()
+    restored = RejectedRecord.model_validate_json(payload)
+
+    assert restored == rejected
+    with pytest.raises(TypeError):
+        restored.details["scores"]["top1"] = 1.0  # type: ignore[index]
+
+
 def test_static_info_enforces_md5_and_binary_copyright_contract() -> None:
     assert final_record().static_info
     assert final_record(
