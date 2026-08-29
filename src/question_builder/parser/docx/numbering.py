@@ -26,7 +26,7 @@ class ResolvedNumbering:
     value: int
     resolved_label: str
 
-    def as_metadata(self) -> dict[str, int | str]:
+    def as_metadata(self) -> dict[str, object]:
         return {
             "num_id": self.num_id,
             "abstract_num_id": self.abstract_num_id,
