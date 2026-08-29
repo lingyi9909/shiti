@@ -1,19 +1,29 @@
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path, PurePosixPath
 from xml.etree import ElementTree as ET
 
 from question_builder.domain.document import BlockType, ContentBlock, DocumentIR
 from question_builder.parser.docx.assets import materialize_asset
+from question_builder.parser.docx.formula import FormulaConversionError, omml_to_latex
 from question_builder.parser.docx.numbering import NumberingResolver
 from question_builder.parser.docx.package import DocxPackage
+from question_builder.parser.docx.table import parse_table
+from question_builder.parser.docx.textbox import find_textboxes
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+M_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+O_NS = "urn:schemas-microsoft-com:office:office"
+V_NS = "urn:schemas-microsoft-com:vml"
 W = f"{{{W_NS}}}"
 R = f"{{{R_NS}}}"
 A = f"{{{A_NS}}}"
+M = f"{{{M_NS}}}"
+O = f"{{{O_NS}}}"
+V = f"{{{V_NS}}}"
 RUN_WRAPPER_TAGS = {
     f"{W}hyperlink",
     f"{W}smartTag",
@@ -34,6 +44,7 @@ def parse_docx(path: Path, asset_dir: Path) -> DocumentIR:
     blocks: list[ContentBlock] = []
     if body is not None:
         for body_index, child in enumerate(body):
+            source_path = f"word/document.xml#/w:document/w:body/*[{body_index + 1}]"
             if child.tag == f"{W}p":
                 _append_paragraph_blocks(
                     child,
@@ -45,13 +56,29 @@ def parse_docx(path: Path, asset_dir: Path) -> DocumentIR:
                     relationships,
                 )
             elif child.tag == f"{W}tbl":
-                text = "".join(node.text or "" for node in child.iter(f"{W}t"))
+                parsed = parse_table(child)
                 blocks.append(
                     _block(
                         blocks,
                         "table",
-                        text,
-                        f"word/document.xml#/w:document/w:body/*[{body_index + 1}]",
+                        parsed.rendered,
+                        source_path,
+                        metadata={
+                            "render_format": "html" if parsed.is_complex else "markdown",
+                            "rows": parsed.rows,
+                            "merges": parsed.merges,
+                            "cells": tuple(
+                                {
+                                    "row": cell.row,
+                                    "col": cell.col,
+                                    "colspan": cell.colspan,
+                                    "rowspan": cell.rowspan,
+                                    "content_kinds": cell.content_kinds,
+                                    "relationship_ids": cell.relationship_ids,
+                                }
+                                for cell in parsed.cells
+                            ),
+                        },
                     )
                 )
             elif child.tag != f"{W}sectPr":
@@ -59,12 +86,13 @@ def parse_docx(path: Path, asset_dir: Path) -> DocumentIR:
                     _block(
                         blocks,
                         "unresolved",
-                        "",
-                        f"word/document.xml#/w:document/w:body/*[{body_index + 1}]",
-                        metadata={"xml_tag": child.tag},
+                        "".join(node.text or "" for node in child.iter(f"{W}t")),
+                        source_path,
+                        metadata={"xml_tag": child.tag, "reason": "unsupported_body_child"},
                     )
                 )
 
+    _append_header_footer_blocks(root, blocks, package, relationships)
     return DocumentIR(
         document_id=f"doc_{package.source_sha256[:16]}",
         source_file=path.name,
@@ -93,9 +121,7 @@ def _append_paragraph_blocks(
             return
         text = "".join(text_parts)
         text_parts.clear()
-        first_paragraph_block = not any(
-            block.source_xml_path == source_path for block in blocks
-        )
+        first_paragraph_block = not any(block.source_xml_path == source_path for block in blocks)
         blocks.append(
             _block(
                 blocks,
@@ -120,6 +146,55 @@ def _append_paragraph_blocks(
             )
         )
 
+    def append_formula(element: ET.Element, element_path: str) -> None:
+        flush_text()
+        source_omml = ET.tostring(element, encoding="unicode")
+        try:
+            latex = omml_to_latex(element)
+        except FormulaConversionError as exc:
+            blocks.append(
+                _block(
+                    blocks,
+                    "unresolved",
+                    source_omml,
+                    element_path,
+                    metadata={"reason": "FORMULA_UNRESOLVED", "source_omml": source_omml, "error": str(exc)},
+                )
+            )
+            return
+        blocks.append(
+            _block(
+                blocks,
+                "formula",
+                latex,
+                element_path,
+                metadata={"latex": latex, "source_omml": source_omml},
+            )
+        )
+
+    def append_object(element: ET.Element, element_path: str) -> None:
+        flush_text()
+        ole = next(iter(element.iter(f"{O}OLEObject")), None)
+        rel_id = ole.attrib.get(f"{R}id") if ole is not None else None
+        target = relationships.get(rel_id, "") if rel_id else ""
+        embedding_path = _relationship_member(target) if target else None
+        preview = next(iter(element.iter(f"{V}imagedata")), None)
+        preview_rel = preview.attrib.get(f"{R}id") if preview is not None else None
+        blocks.append(
+            _block(
+                blocks,
+                "unresolved",
+                "",
+                element_path,
+                relationship_id=rel_id,
+                metadata={
+                    "reason": "FORMULA_UNRESOLVED",
+                    "embedding_path": embedding_path,
+                    "preview_relationship_id": preview_rel,
+                },
+            )
+        )
+
     def process_run(run: ET.Element, run_path: str) -> None:
         for child_index, child in enumerate(run):
             child_path = f"{run_path}/*[{child_index + 1}]"
@@ -130,38 +205,27 @@ def _append_paragraph_blocks(
             elif child.tag in {f"{W}br", f"{W}cr"}:
                 text_parts.append("\n")
             elif child.tag == f"{W}drawing":
-                flush_text()
-                for blip in child.iter(f"{A}blip"):
-                    rel_id = blip.attrib.get(f"{R}embed")
-                    if not rel_id or rel_id not in relationships:
+                _append_drawing(child, child_path, blocks, package, asset_dir, relationships, flush_text)
+            elif child.tag == f"{M}oMath":
+                append_formula(child, child_path)
+            elif child.tag == f"{W}pict":
+                textboxes = find_textboxes(child)
+                if textboxes:
+                    flush_text()
+                    for box in textboxes:
                         blocks.append(
                             _block(
                                 blocks,
-                                "unresolved",
-                                "",
+                                "textbox",
+                                box.text,
                                 child_path,
-                                relationship_id=rel_id,
-                                metadata={"reason": "missing_image_relationship"},
+                                metadata={"anchor_hint": box.anchor_hint},
                             )
                         )
-                        continue
-                    member = _relationship_member(relationships[rel_id])
-                    asset = materialize_asset(package, member, asset_dir)
-                    blocks.append(
-                        _block(
-                            blocks,
-                            "image",
-                            "",
-                            child_path,
-                            relationship_id=rel_id,
-                            metadata={
-                                "asset_id": asset.asset_id,
-                                "asset_sha256": asset.sha256,
-                                "asset_filename": asset.filename,
-                                "source_member": asset.source_member,
-                            },
-                        )
-                    )
+                else:
+                    append_unresolved(child, child_path, "unsupported_pict")
+            elif child.tag == f"{W}object":
+                append_object(child, child_path)
             elif child.tag == f"{W}rPr":
                 continue
             else:
@@ -172,6 +236,8 @@ def _append_paragraph_blocks(
             child_path = f"{wrapper_path}/*[{child_index + 1}]"
             if child.tag == f"{W}r":
                 process_run(child, child_path)
+            elif child.tag == f"{M}oMath":
+                append_formula(child, child_path)
             elif child.tag in RUN_WRAPPER_TAGS:
                 process_wrapper(child, child_path)
             else:
@@ -183,6 +249,8 @@ def _append_paragraph_blocks(
             continue
         if child.tag == f"{W}r":
             process_run(child, child_path)
+        elif child.tag == f"{M}oMath":
+            append_formula(child, child_path)
         elif child.tag in RUN_WRAPPER_TAGS:
             process_wrapper(child, child_path)
         else:
@@ -200,6 +268,102 @@ def _append_paragraph_blocks(
                 numbering=numbering_metadata,
             )
         )
+
+
+def _append_drawing(
+    drawing: ET.Element,
+    source_path: str,
+    blocks: list[ContentBlock],
+    package: DocxPackage,
+    asset_dir: Path,
+    relationships: dict[str, str],
+    flush_text: object,
+) -> None:
+    flush_text()  # type: ignore[operator]
+    for blip in drawing.iter(f"{A}blip"):
+        rel_id = blip.attrib.get(f"{R}embed")
+        if not rel_id or rel_id not in relationships:
+            blocks.append(
+                _block(
+                    blocks,
+                    "unresolved",
+                    "",
+                    source_path,
+                    relationship_id=rel_id,
+                    metadata={"reason": "missing_image_relationship"},
+                )
+            )
+            continue
+        member = _relationship_member(relationships[rel_id])
+        asset = materialize_asset(package, member, asset_dir)
+        blocks.append(
+            _block(
+                blocks,
+                "image",
+                "",
+                source_path,
+                relationship_id=rel_id,
+                metadata={
+                    "asset_id": asset.asset_id,
+                    "asset_sha256": asset.sha256,
+                    "asset_filename": asset.filename,
+                    "source_member": asset.source_member,
+                },
+            )
+        )
+
+
+def _append_header_footer_blocks(
+    document_root: ET.Element,
+    blocks: list[ContentBlock],
+    package: DocxPackage,
+    relationships: dict[str, str],
+) -> None:
+    references: list[tuple[str, ET.Element]] = []
+    references.extend(("header", node) for node in document_root.iter(f"{W}headerReference"))
+    references.extend(("footer", node) for node in document_root.iter(f"{W}footerReference"))
+    for block_type, reference in references:
+        rel_id = reference.attrib.get(f"{R}id")
+        target = relationships.get(rel_id or "")
+        if not target:
+            continue
+        member = _relationship_member(target)
+        if member not in package.members:
+            continue
+        root = ET.fromstring(package.read(member))
+        paragraphs = [
+            "".join(node.text or "" for node in paragraph.iter(f"{W}t"))
+            for paragraph in root.iter(f"{W}p")
+        ]
+        paragraphs = [text for text in paragraphs if text]
+        counts = Counter(paragraphs)
+        for index, text in enumerate(paragraphs):
+            path = f"{member}#/*/w:p[{index + 1}]"
+            blocks.append(
+                _block(
+                    blocks,
+                    block_type,  # type: ignore[arg-type]
+                    text,
+                    path,
+                    relationship_id=rel_id,
+                    metadata={"part": member, "metadata_only": True},
+                )
+            )
+            if counts[text] > 1:
+                blocks.append(
+                    _block(
+                        blocks,
+                        "noise_candidate",
+                        text,
+                        path,
+                        relationship_id=rel_id,
+                        metadata={
+                            "structural_evidence": f"repeated_{block_type}",
+                            "repeat_count": counts[text],
+                            "source_part": member,
+                        },
+                    )
+                )
 
 
 def _block(
