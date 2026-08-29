@@ -23,11 +23,13 @@ def find_textboxes(element: ET.Element) -> tuple[TextBoxEvidence, ...]:
             continue
         text = "".join(node.text or "" for node in content.iter(f"{W}t"))
         parent_shape = _nearest_shape_style(textbox, element)
-        evidence.append(TextBoxEvidence(text=text, anchor_hint=parent_shape or "paragraph"))
+        evidence.append(
+            TextBoxEvidence(text=text, anchor_hint=parent_shape or "paragraph")
+        )
     for content in element.iter(f"{W}txbxContent"):
-        if any(item.text == "".join(node.text or "" for node in content.iter(f"{W}t")) for item in evidence):
-            continue
         text = "".join(node.text or "" for node in content.iter(f"{W}t"))
+        if any(item.text == text for item in evidence):
+            continue
         evidence.append(TextBoxEvidence(text=text, anchor_hint="paragraph"))
     return tuple(evidence)
 
