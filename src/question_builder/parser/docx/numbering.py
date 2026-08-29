@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from xml.etree import ElementTree as ET
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -43,9 +43,11 @@ class NumberingResolver:
         self,
         num_to_abstract: dict[int, int],
         levels: dict[tuple[int, int], NumberingLevel],
+        overrides: dict[tuple[int, int], NumberingLevel] | None = None,
     ) -> None:
         self._num_to_abstract = num_to_abstract
         self._levels = levels
+        self._overrides = overrides or {}
         self._counters: dict[tuple[int, int], int] = {}
 
     @classmethod
@@ -58,33 +60,44 @@ class NumberingResolver:
         levels: dict[tuple[int, int], NumberingLevel] = {}
         for abstract in root.findall(f"{W}abstractNum"):
             abstract_id = _int_attr(abstract, "abstractNumId")
-            for level in abstract.findall(f"{W}lvl"):
-                ilvl = _int_attr(level, "ilvl")
-                start_node = level.find(f"{W}start")
-                fmt_node = level.find(f"{W}numFmt")
-                text_node = level.find(f"{W}lvlText")
-                start = _val_int(start_node, 1)
-                num_fmt = _val(fmt_node, "decimal")
-                lvl_text = _val(text_node, f"%{ilvl + 1}.")
-                levels[(abstract_id, ilvl)] = NumberingLevel(
-                    abstract_num_id=abstract_id,
-                    ilvl=ilvl,
-                    num_fmt=num_fmt,
-                    lvl_text=lvl_text,
-                    start=start,
-                )
+            for level_node in abstract.findall(f"{W}lvl"):
+                level = _parse_level(level_node, abstract_id)
+                levels[(abstract_id, level.ilvl)] = level
 
         num_to_abstract: dict[int, int] = {}
+        overrides: dict[tuple[int, int], NumberingLevel] = {}
         for num in root.findall(f"{W}num"):
             num_id = _int_attr(num, "numId")
             abstract_ref = num.find(f"{W}abstractNumId")
-            if abstract_ref is not None:
-                num_to_abstract[num_id] = _val_int(abstract_ref, 0)
-        return cls(num_to_abstract, levels)
+            if abstract_ref is None:
+                continue
+            abstract_id = _val_int(abstract_ref, 0)
+            num_to_abstract[num_id] = abstract_id
+            for override_node in num.findall(f"{W}lvlOverride"):
+                ilvl = _int_attr(override_node, "ilvl")
+                base_level = levels[(abstract_id, ilvl)]
+                embedded_level = override_node.find(f"{W}lvl")
+                if embedded_level is None:
+                    override_level = base_level
+                else:
+                    override_level = _parse_level(
+                        embedded_level,
+                        abstract_id,
+                        fallback=base_level,
+                        forced_ilvl=ilvl,
+                    )
+                start_override = override_node.find(f"{W}startOverride")
+                if start_override is not None:
+                    override_level = replace(
+                        override_level,
+                        start=_val_int(start_override, override_level.start),
+                    )
+                overrides[(num_id, ilvl)] = override_level
+        return cls(num_to_abstract, levels, overrides)
 
     def next_label(self, num_id: int, ilvl: int) -> ResolvedNumbering:
         abstract_id = self._num_to_abstract[num_id]
-        level = self._levels[(abstract_id, ilvl)]
+        level = self._level_for(num_id, abstract_id, ilvl)
         key = (num_id, ilvl)
         value = self._counters.get(key, level.start - 1) + 1
         self._counters[key] = value
@@ -95,9 +108,7 @@ class NumberingResolver:
 
         label = level.lvl_text
         for level_index in range(ilvl + 1):
-            referenced = self._levels.get((abstract_id, level_index))
-            if referenced is None:
-                continue
+            referenced = self._level_for(num_id, abstract_id, level_index)
             ref_key = (num_id, level_index)
             ref_value = self._counters.get(ref_key, referenced.start)
             label = label.replace(
@@ -113,6 +124,29 @@ class NumberingResolver:
             value=value,
             resolved_label=label,
         )
+
+    def _level_for(self, num_id: int, abstract_id: int, ilvl: int) -> NumberingLevel:
+        return self._overrides.get((num_id, ilvl), self._levels[(abstract_id, ilvl)])
+
+
+def _parse_level(
+    node: ET.Element,
+    abstract_id: int,
+    *,
+    fallback: NumberingLevel | None = None,
+    forced_ilvl: int | None = None,
+) -> NumberingLevel:
+    ilvl = forced_ilvl if forced_ilvl is not None else _int_attr(node, "ilvl")
+    default_start = fallback.start if fallback is not None else 1
+    default_fmt = fallback.num_fmt if fallback is not None else "decimal"
+    default_text = fallback.lvl_text if fallback is not None else f"%{ilvl + 1}."
+    return NumberingLevel(
+        abstract_num_id=abstract_id,
+        ilvl=ilvl,
+        num_fmt=_val(node.find(f"{W}numFmt"), default_fmt),
+        lvl_text=_val(node.find(f"{W}lvlText"), default_text),
+        start=_val_int(node.find(f"{W}start"), default_start),
+    )
 
 
 def _val(node: ET.Element | None, default: str) -> str:
@@ -136,6 +170,8 @@ def _format_number(value: int, num_fmt: str) -> str:
         return _letters(value, upper=False)
     if num_fmt in {"chineseCounting", "chineseCountingThousand", "ideographTraditional"}:
         return _chinese_number(value)
+    if num_fmt == "decimalEnclosedCircle":
+        return _enclosed_circle(value)
     return str(value)
 
 
@@ -160,4 +196,10 @@ def _chinese_number(value: int) -> str:
     if value < 100:
         tens, ones = divmod(value, 10)
         return digits[tens] + "十" + (digits[ones] if ones else "")
+    return str(value)
+
+
+def _enclosed_circle(value: int) -> str:
+    if 1 <= value <= 20:
+        return chr(0x2460 + value - 1)
     return str(value)

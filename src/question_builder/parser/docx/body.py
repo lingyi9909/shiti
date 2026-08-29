@@ -14,6 +14,15 @@ A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 W = f"{{{W_NS}}}"
 R = f"{{{R_NS}}}"
 A = f"{{{A_NS}}}"
+RUN_WRAPPER_TAGS = {
+    f"{W}hyperlink",
+    f"{W}smartTag",
+    f"{W}customXml",
+    f"{W}ins",
+    f"{W}del",
+    f"{W}moveFrom",
+    f"{W}moveTo",
+}
 
 
 def parse_docx(path: Path, asset_dir: Path) -> DocumentIR:
@@ -98,8 +107,22 @@ def _append_paragraph_blocks(
             )
         )
 
-    for run_index, run in enumerate(paragraph.findall(f"{W}r")):
+    def append_unresolved(element: ET.Element, element_path: str, reason: str) -> None:
+        flush_text()
+        raw_text = "".join(node.text or "" for node in element.iter(f"{W}t"))
+        blocks.append(
+            _block(
+                blocks,
+                "unresolved",
+                raw_text,
+                element_path,
+                metadata={"xml_tag": element.tag, "reason": reason},
+            )
+        )
+
+    def process_run(run: ET.Element, run_path: str) -> None:
         for child_index, child in enumerate(run):
+            child_path = f"{run_path}/*[{child_index + 1}]"
             if child.tag == f"{W}t":
                 text_parts.append(child.text or "")
             elif child.tag == f"{W}tab":
@@ -116,7 +139,7 @@ def _append_paragraph_blocks(
                                 blocks,
                                 "unresolved",
                                 "",
-                                f"{source_path}/w:r[{run_index + 1}]/*[{child_index + 1}]",
+                                child_path,
                                 relationship_id=rel_id,
                                 metadata={"reason": "missing_image_relationship"},
                             )
@@ -129,7 +152,7 @@ def _append_paragraph_blocks(
                             blocks,
                             "image",
                             "",
-                            f"{source_path}/w:r[{run_index + 1}]/*[{child_index + 1}]",
+                            child_path,
                             relationship_id=rel_id,
                             metadata={
                                 "asset_id": asset.asset_id,
@@ -142,16 +165,29 @@ def _append_paragraph_blocks(
             elif child.tag == f"{W}rPr":
                 continue
             else:
-                flush_text()
-                blocks.append(
-                    _block(
-                        blocks,
-                        "unresolved",
-                        child.text or "",
-                        f"{source_path}/w:r[{run_index + 1}]/*[{child_index + 1}]",
-                        metadata={"xml_tag": child.tag},
-                    )
-                )
+                append_unresolved(child, child_path, "unsupported_run_child")
+
+    def process_wrapper(wrapper: ET.Element, wrapper_path: str) -> None:
+        for child_index, child in enumerate(wrapper):
+            child_path = f"{wrapper_path}/*[{child_index + 1}]"
+            if child.tag == f"{W}r":
+                process_run(child, child_path)
+            elif child.tag in RUN_WRAPPER_TAGS:
+                process_wrapper(child, child_path)
+            else:
+                append_unresolved(child, child_path, "unsupported_paragraph_wrapper_child")
+
+    for child_index, child in enumerate(paragraph):
+        child_path = f"{source_path}/*[{child_index + 1}]"
+        if child.tag == f"{W}pPr":
+            continue
+        if child.tag == f"{W}r":
+            process_run(child, child_path)
+        elif child.tag in RUN_WRAPPER_TAGS:
+            process_wrapper(child, child_path)
+        else:
+            append_unresolved(child, child_path, "unsupported_paragraph_child")
+
     flush_text()
     if not any(block.source_xml_path == source_path for block in blocks):
         blocks.append(
