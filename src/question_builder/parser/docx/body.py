@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path, PurePosixPath
 from xml.etree import ElementTree as ET
 
-from question_builder.domain.document import ContentBlock, DocumentIR
+from question_builder.domain.document import BlockType, ContentBlock, DocumentIR
 from question_builder.parser.docx.assets import materialize_asset
 from question_builder.parser.docx.numbering import NumberingResolver
 from question_builder.parser.docx.package import DocxPackage
@@ -84,6 +84,9 @@ def _append_paragraph_blocks(
             return
         text = "".join(text_parts)
         text_parts.clear()
+        first_paragraph_block = not any(
+            block.source_xml_path == source_path for block in blocks
+        )
         blocks.append(
             _block(
                 blocks,
@@ -91,7 +94,7 @@ def _append_paragraph_blocks(
                 text,
                 source_path,
                 style_id=style_id,
-                numbering=numbering_metadata if not any(b.source_xml_path == source_path for b in blocks) else None,
+                numbering=numbering_metadata if first_paragraph_block else None,
             )
         )
 
@@ -165,7 +168,7 @@ def _append_paragraph_blocks(
 
 def _block(
     blocks: list[ContentBlock],
-    block_type: str,
+    block_type: BlockType,
     raw_text: str,
     source_xml_path: str,
     *,
@@ -178,7 +181,7 @@ def _block(
     return ContentBlock(
         block_id=f"b{order + 1:06d}",
         order=order,
-        type=block_type,  # type: ignore[arg-type]
+        type=block_type,
         raw_text=raw_text,
         normalized_text=raw_text,
         style_id=style_id,
