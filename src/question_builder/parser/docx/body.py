@@ -99,6 +99,7 @@ def _append_table_block(
     relationships: dict[str, str],
 ) -> None:
     parsed = parse_table(table)
+    raw_text = "".join(node.text or "" for node in table.iter(f"{W}t"))
     assets: list[dict[str, str]] = []
     unresolved_formulae: list[dict[str, str]] = []
     for cell in parsed.cells:
@@ -127,10 +128,11 @@ def _append_table_block(
         _block(
             blocks,
             "table",
-            parsed.rendered,
+            raw_text,
             source_path,
             metadata={
                 "render_format": "html" if parsed.is_complex else "markdown",
+                "rendered": parsed.rendered,
                 "rows": parsed.rows,
                 "merges": parsed.merges,
                 "assets": tuple(assets),
@@ -431,8 +433,7 @@ def _append_header_footer_blocks(
     package: DocxPackage,
     relationships: dict[str, str],
 ) -> None:
-    HeaderFooterType = Literal["header", "footer"]
-    references: list[tuple[HeaderFooterType, ET.Element]] = []
+    references: list[tuple[Literal["header", "footer"], ET.Element]] = []
     references.extend(
         ("header", node)
         for node in document_root.iter(f"{W}headerReference")
