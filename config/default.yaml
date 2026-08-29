@@ -1,0 +1,41 @@
+pipeline_version: "0.1.0"
+
+quality:
+  precision_first: true
+  noncritical_recognition_accept: 0.95
+  critical_recognition_accept: 0.98
+  recognition_fallback_floor: 0.90
+  split_accept: 0.98
+  answer_match_accept: 0.995
+  answer_match_margin: 0.10
+  answer_verify_accept: 0.995
+  reject_on_missing_answer: true
+  reject_on_unresolved_formula: true
+  reject_on_ambiguous_match: true
+
+providers:
+  text_ocr:
+    primary: provider_a
+    fallback: provider_b
+  formula_ocr:
+    primary: provider_c
+    fallback: provider_d
+  table:
+    primary: provider_e
+  vision:
+    primary: provider_f
+  llm:
+    primary: provider_g
+    verifier: provider_h
+
+concurrency:
+  document_parse: 4
+  text_ocr: 8
+  formula_ocr: 4
+  table: 4
+  vision: 4
+  llm: 6
+
+output:
+  copyright_default: "0"
+  slim_md5_version: "slim_md5_v1"
