@@ -14,13 +14,16 @@ def test_advanced_document_ir_preserves_structured_and_unresolved_evidence(
         ("paragraph", "Before "),
         ("formula", r"\frac{a}{b}"),
         ("paragraph", " after"),
-        ("table", '<table>\n  <tr>\n    <td colspan="2">Merged</td>\n  </tr>\n</table>'),
+        ("table", "Merged"),
         ("textbox", "Boxed evidence"),
         ("unresolved", ""),
         ("header", "2026 Math Exam"),
     ]
     table = parsed.blocks[3]
     assert table.metadata["render_format"] == "html"
+    assert table.metadata["rendered"] == (
+        '<table>\n  <tr>\n    <td colspan="2">Merged</td>\n  </tr>\n</table>'
+    )
     assert table.metadata["merges"] == (
         {"row": 0, "col": 0, "colspan": 2, "rowspan": 1},
     )
