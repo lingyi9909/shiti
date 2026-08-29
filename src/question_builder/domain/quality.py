@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_serializer, field_validator
 
-from question_builder.domain.document import DomainModel, freeze_value
+from question_builder.domain.document import DomainModel, freeze_value, thaw_value
 
 
 class RejectReason(StrEnum):
@@ -35,3 +35,7 @@ class RejectedRecord(DomainModel):
     @classmethod
     def freeze_details(cls, value: dict[str, Any]) -> dict[str, Any]:
         return freeze_value(value)
+
+    @field_serializer("details")
+    def serialize_details(self, value: dict[str, Any]) -> dict[str, Any]:
+        return cast(dict[str, Any], thaw_value(value))
