@@ -1,9 +1,9 @@
 from pathlib import Path
+from xml.etree import ElementTree as ET
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from question_builder.parser.docx.body import parse_docx
 from question_builder.parser.docx.table import parse_table
-from xml.etree import ElementTree as ET
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -12,14 +12,20 @@ M_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 PKG_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 
 
-def _write_docx(path: Path, document_xml: str, members: dict[str, bytes] | None = None) -> None:
+def _write_docx(
+    path: Path,
+    document_xml: str,
+    members: dict[str, bytes] | None = None,
+) -> None:
     with ZipFile(path, "w", ZIP_DEFLATED) as archive:
         archive.writestr("word/document.xml", document_xml.encode())
         for name, content in (members or {}).items():
             archive.writestr(name, content)
 
 
-def test_drawingml_textbox_image_order_duplicate_occurrences_and_unresolved(tmp_path: Path) -> None:
+def test_drawingml_textbox_image_order_duplicate_occurrences_and_unresolved(
+    tmp_path: Path,
+) -> None:
     source = tmp_path / "drawing-textbox.docx"
     document = f"""<?xml version='1.0' encoding='UTF-8'?>
 <w:document xmlns:w='{W_NS}' xmlns:r='{R_NS}' xmlns:a='{A_NS}'>
@@ -31,7 +37,9 @@ def test_drawingml_textbox_image_order_duplicate_occurrences_and_unresolved(tmp_
     <w:p><w:r><w:drawing>
       <w:txbxContent><w:p><w:r><w:t>same</w:t></w:r></w:p></w:txbxContent>
     </w:drawing></w:r></w:p>
-    <w:p><w:r><w:drawing><a:graphic><a:graphicData><a:unknown/></a:graphicData></a:graphic></w:drawing></w:r></w:p>
+    <w:p><w:r><w:drawing>
+      <a:graphic><a:graphicData><a:unknown/></a:graphicData></a:graphic>
+    </w:drawing></w:r></w:p>
   </w:body>
 </w:document>"""
     rels = f"""<Relationships xmlns='{PKG_REL_NS}'>
@@ -53,10 +61,20 @@ def test_drawingml_textbox_image_order_duplicate_occurrences_and_unresolved(tmp_
         for block in parsed.blocks
         if block.type in {"textbox", "image", "unresolved"}
     ]
-    assert relevant[:3] == [("textbox", "same"), ("image", ""), ("textbox", "same")]
-    assert sum(block.type == "textbox" and block.raw_text == "same" for block in parsed.blocks) == 2
+    assert relevant[:3] == [
+        ("textbox", "same"),
+        ("image", ""),
+        ("textbox", "same"),
+    ]
+    assert sum(
+        block.type == "textbox" and block.raw_text == "same"
+        for block in parsed.blocks
+    ) == 2
     unresolved = [block for block in parsed.blocks if block.type == "unresolved"]
-    assert any(block.metadata.get("reason") == "unsupported_drawing_content" for block in unresolved)
+    assert any(
+        block.metadata.get("reason") == "unsupported_drawing_content"
+        for block in unresolved
+    )
 
 
 def test_omathpara_routes_through_formula_chain_in_source_order(tmp_path: Path) -> None:
@@ -98,7 +116,14 @@ def test_table_cell_recurses_wrappers_preserves_order_and_unresolved() -> None:
     parsed = parse_table(table)
     cell = parsed.cells[0]
 
-    assert cell.content_kinds == ("text", "text", "formula", "image", "unresolved", "text")
+    assert cell.content_kinds == (
+        "text",
+        "text",
+        "formula",
+        "image",
+        "unresolved",
+        "text",
+    )
     assert [item["kind"] for item in cell.contents] == [
         "text",
         "text",
@@ -111,7 +136,9 @@ def test_table_cell_recurses_wrappers_preserves_order_and_unresolved() -> None:
     assert cell.contents[4]["text"] == "unsupported"
 
 
-def test_table_images_missing_relationship_target_or_member_are_explicit_unresolved(tmp_path: Path) -> None:
+def test_table_images_missing_relationship_target_or_member_are_explicit_unresolved(
+    tmp_path: Path,
+) -> None:
     source = tmp_path / "table-images.docx"
     document = f"""<?xml version='1.0' encoding='UTF-8'?>
 <w:document xmlns:w='{W_NS}' xmlns:r='{R_NS}' xmlns:a='{A_NS}'>
@@ -132,7 +159,8 @@ def test_table_images_missing_relationship_target_or_member_are_explicit_unresol
     table_unresolved = [
         block
         for block in parsed.blocks
-        if block.type == "unresolved" and block.metadata.get("container") == "table_cell"
+        if block.type == "unresolved"
+        and block.metadata.get("container") == "table_cell"
     ]
     reasons = {block.metadata.get("reason") for block in table_unresolved}
     assert reasons == {
