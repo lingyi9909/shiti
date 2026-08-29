@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Literal, Never, cast
+from types import MappingProxyType
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -17,43 +18,12 @@ BlockType = Literal[
 ]
 
 
-class FrozenDict(dict[str, Any]):
-    """A dict-shaped value that cannot be mutated after validation."""
-
-    @staticmethod
-    def _immutable() -> Never:
-        raise TypeError("domain mappings are immutable")
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        self._immutable()
-
-    def __delitem__(self, key: str) -> None:
-        self._immutable()
-
-    def clear(self) -> None:
-        self._immutable()
-
-    def pop(self, key: str, default: Any = None) -> Any:
-        self._immutable()
-
-    def popitem(self) -> tuple[str, Any]:
-        self._immutable()
-
-    def setdefault(self, key: str, default: Any = None) -> Any:
-        self._immutable()
-
-    def update(self, *args: Any, **kwargs: Any) -> None:
-        self._immutable()
-
-    def __ior__(self, value: Any, /) -> FrozenDict:
-        self._immutable()
-
-
 def freeze_value[T](value: T) -> T:
-    """Recursively freeze mutable containers while preserving serializable shapes."""
+    """Recursively freeze mutable containers while preserving mapping semantics."""
 
     if isinstance(value, dict):
-        return cast(T, FrozenDict({key: freeze_value(item) for key, item in value.items()}))
+        frozen = {key: freeze_value(item) for key, item in value.items()}
+        return cast(T, MappingProxyType(frozen))
     if isinstance(value, (list, tuple)):
         return cast(T, tuple(freeze_value(item) for item in value))
     if isinstance(value, (set, frozenset)):
