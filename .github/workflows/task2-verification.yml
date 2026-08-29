@@ -11,7 +11,7 @@ jobs:
       - name: Checkout exact Task 2 head
         uses: actions/checkout@v4
         with:
-          ref: b5ee1c2776f980da6b8b8698ca1d3fb42993b9d6
+          ref: ad8a939dbfc8a2c3d83893fe3afb8f91a52b13b8
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -19,3 +19,9 @@ jobs:
         run: python -m pip install -e '.[dev]'
       - name: Task 2 parser tests
         run: python -m pytest tests/unit/parser -v
+      - name: Task 0 regression
+        run: python -m pytest tests/unit/test_config.py tests/unit/test_domain_models.py -v
+      - name: Ruff
+        run: python -m ruff check src tests
+      - name: Mypy
+        run: python -m mypy src/question_builder/config src/question_builder/domain src/question_builder/parser
