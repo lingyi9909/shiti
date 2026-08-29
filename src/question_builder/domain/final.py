@@ -122,6 +122,14 @@ class FinalQuestionRecord(DomainModel):
         missing = required_keys - parsed.keys()
         if missing:
             raise ValueError(f"static_info missing required provenance keys: {sorted(missing)}")
+        slim_question_md5 = parsed["slim_question_md5"]
+        if (
+            not isinstance(slim_question_md5, str)
+            or re.fullmatch(r"[0-9a-f]{32}", slim_question_md5) is None
+        ):
+            raise ValueError("static_info slim_question_md5 must be 32 lowercase hex characters")
+        if parsed["copyright"] not in ("0", "1") or not isinstance(parsed["copyright"], str):
+            raise ValueError('static_info copyright must be string "0" or "1"')
         for key in ("source_question_blocks", "source_answer_blocks"):
             block_ids = parsed[key]
             if (

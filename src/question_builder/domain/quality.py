@@ -3,9 +3,9 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
-from question_builder.domain.document import DomainModel
+from question_builder.domain.document import DomainModel, freeze_value
 
 
 class RejectReason(StrEnum):
@@ -29,4 +29,9 @@ class RejectedRecord(DomainModel):
     stage: str = Field(min_length=1)
     reason_code: RejectReason
     details: dict[str, Any] = Field(default_factory=dict)
-    source_files: list[str] = Field(default_factory=list)
+    source_files: tuple[str, ...] = ()
+
+    @field_validator("details", mode="after")
+    @classmethod
+    def freeze_details(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return freeze_value(value)

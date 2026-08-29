@@ -11,12 +11,12 @@ class AnswerCandidate(DomainModel):
     question_number: str | None = None
     answer: str = Field(min_length=1)
     analysis: str = "略"
-    source_blocks: list[str] = Field(min_length=1)
+    source_blocks: tuple[str, ...] = Field(min_length=1)
     extract_score: float = Field(ge=0.0, le=1.0)
 
     @field_validator("source_blocks")
     @classmethod
-    def validate_source_blocks(cls, value: list[str]) -> list[str]:
+    def validate_source_blocks(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if any(not block_id for block_id in value):
             raise ValueError("answer source block ids must be non-empty")
         if len(value) != len(set(value)):

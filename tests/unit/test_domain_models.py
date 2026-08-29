@@ -152,8 +152,111 @@ def test_question_answer_and_matching_keep_source_block_traceability() -> None:
     )
     matched = MatchedQuestion(question=question, answer=answer, evidence=evidence)
 
-    assert matched.question.content_blocks == ["b1", "b2"]
-    assert matched.answer.source_blocks == ["a1"]
+    assert matched.question.content_blocks == ("b1", "b2")
+    assert matched.answer.source_blocks == ("a1",)
+
+
+def test_domain_contract_is_immutable_including_nested_block_collections() -> None:
+    content = ContentBlock(
+        block_id="b1",
+        order=1,
+        type="paragraph",
+        raw_text="original",
+        numbering={"resolved_label": "1.", "nested": {"level": 1}},
+        metadata={"tags": ["source"]},
+    )
+    document = DocumentIR(
+        document_id="doc_1",
+        source_file="paper.docx",
+        source_sha256="a" * 64,
+        blocks=[content],
+    )
+    question = QuestionCandidate(
+        question_candidate_id="qc_1",
+        document_id="doc_1",
+        content_blocks=["b1"],
+        split_score=0.999,
+    )
+    answer = AnswerCandidate(
+        answer_candidate_id="ac_1",
+        document_id="doc_a",
+        answer="A",
+        source_blocks=["a1"],
+        extract_score=0.999,
+    )
+    evidence = MatchEvidence(
+        question_candidate_id="qc_1",
+        answer_candidate_id="ac_1",
+        match_score=0.999,
+        question_source_blocks=["b1"],
+        answer_source_blocks=["a1"],
+    )
+
+    with pytest.raises(ValidationError):
+        content.raw_text = "tampered"
+    with pytest.raises(TypeError):
+        content.metadata["new"] = "tampered"
+    with pytest.raises((AttributeError, TypeError)):
+        content.metadata["tags"].append("tampered")
+    with pytest.raises(TypeError):
+        content.numbering["resolved_label"] = "2."  # type: ignore[index]
+    with pytest.raises(TypeError):
+        content.numbering["nested"]["level"] = 2  # type: ignore[index]
+
+    assert isinstance(document.blocks, tuple)
+    with pytest.raises(AttributeError):
+        document.blocks.append(block("b2", 2))  # type: ignore[attr-defined]
+    assert isinstance(question.content_blocks, tuple)
+    assert isinstance(answer.source_blocks, tuple)
+    assert isinstance(evidence.question_source_blocks, tuple)
+    assert isinstance(evidence.answer_source_blocks, tuple)
+
+
+def test_static_info_enforces_md5_and_binary_copyright_contract() -> None:
+    assert final_record().static_info
+    assert final_record(
+        static_info=json.dumps(
+            {
+                "slim_question_md5": "0123456789abcdef0123456789abcdef",
+                "copyright": "1",
+                "source_question_blocks": ["b1"],
+                "source_answer_blocks": ["a1"],
+            }
+        )
+    ).static_info
+
+    invalid_md5_values = [
+        "",
+        "a" * 31,
+        "a" * 33,
+        "A" * 32,
+        "g" * 32,
+    ]
+    for invalid_md5 in invalid_md5_values:
+        with pytest.raises(ValidationError):
+            final_record(
+                static_info=json.dumps(
+                    {
+                        "slim_question_md5": invalid_md5,
+                        "copyright": "0",
+                        "source_question_blocks": ["b1"],
+                        "source_answer_blocks": ["a1"],
+                    }
+                )
+            )
+
+    for invalid_copyright in ("2", "", 0, 1, True, None):
+        with pytest.raises(ValidationError):
+            final_record(
+                static_info=json.dumps(
+                    {
+                        "slim_question_md5": "0123456789abcdef0123456789abcdef",
+                        "copyright": invalid_copyright,
+                        "source_question_blocks": ["b1"],
+                        "source_answer_blocks": ["a1"],
+                    }
+                )
+            )
 
 
 def test_final_question_has_exact_19_field_shape_and_forbids_extras() -> None:

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from pydantic import Field, model_validator
+from typing import Any
+
+from pydantic import Field, field_validator, model_validator
 
 from question_builder.domain.answer import AnswerCandidate
-from question_builder.domain.document import DomainModel
+from question_builder.domain.document import DomainModel, freeze_value
 from question_builder.domain.question import QuestionCandidate
 
 
@@ -13,9 +15,14 @@ class MatchEvidence(DomainModel):
     match_score: float = Field(ge=0.0, le=1.0)
     second_best_score: float | None = Field(default=None, ge=0.0, le=1.0)
     verifier_score: float | None = Field(default=None, ge=0.0, le=1.0)
-    question_source_blocks: list[str] = Field(min_length=1)
-    answer_source_blocks: list[str] = Field(min_length=1)
+    question_source_blocks: tuple[str, ...] = Field(min_length=1)
+    answer_source_blocks: tuple[str, ...] = Field(min_length=1)
     evidence: dict[str, float | str | bool] = Field(default_factory=dict)
+
+    @field_validator("evidence", mode="after")
+    @classmethod
+    def freeze_evidence(cls, value: dict[str, float | str | bool]) -> dict[str, Any]:
+        return freeze_value(value)
 
 
 class MatchedQuestion(DomainModel):
