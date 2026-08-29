@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_serializer, field_validator, model_validator
 
 from question_builder.domain.answer import AnswerCandidate
-from question_builder.domain.document import DomainModel, freeze_value
+from question_builder.domain.document import DomainModel, freeze_value, thaw_value
 from question_builder.domain.question import QuestionCandidate
 
 
@@ -23,6 +23,10 @@ class MatchEvidence(DomainModel):
     @classmethod
     def freeze_evidence(cls, value: dict[str, float | str | bool]) -> dict[str, Any]:
         return freeze_value(value)
+
+    @field_serializer("evidence")
+    def serialize_evidence(self, value: dict[str, float | str | bool]) -> dict[str, Any]:
+        return cast(dict[str, Any], thaw_value(value))
 
 
 class MatchedQuestion(DomainModel):
