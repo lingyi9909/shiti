@@ -45,7 +45,7 @@ class FrozenDict(dict[str, Any]):
     def update(self, *args: Any, **kwargs: Any) -> None:
         self._immutable()
 
-    def __ior__(self, value: dict[str, Any], /) -> FrozenDict:
+    def __ior__(self, value: Any, /) -> FrozenDict:
         self._immutable()
 
 
