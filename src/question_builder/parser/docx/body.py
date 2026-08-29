@@ -35,6 +35,7 @@ RUN_WRAPPER_TAGS = {
     f"{W}moveFrom",
     f"{W}moveTo",
 }
+MATH_TAGS = {f"{M}oMath", f"{M}oMathPara"}
 
 
 def parse_docx(path: Path, asset_dir: Path) -> DocumentIR:
@@ -101,28 +102,71 @@ def _append_table_block(
     parsed = parse_table(table)
     raw_text = "".join(node.text or "" for node in table.iter(f"{W}t"))
     assets: list[dict[str, str]] = []
-    unresolved_formulae: list[dict[str, str]] = []
+    unresolved_items: list[dict[str, object]] = []
+
     for cell in parsed.cells:
-        for relationship_id in cell.relationship_ids:
-            target = relationships.get(relationship_id)
-            if not target:
-                continue
-            member = _relationship_member(target)
-            if member not in package.members:
-                continue
-            asset = materialize_asset(package, member, asset_dir)
-            assets.append(
-                {
-                    "relationship_id": relationship_id,
-                    "asset_id": asset.asset_id,
-                    "asset_sha256": asset.sha256,
-                    "asset_filename": asset.filename,
-                    "source_member": asset.source_member,
-                }
-            )
         for content in cell.contents:
-            if content.get("kind") == "unresolved_formula":
-                unresolved_formulae.append(content)
+            kind = content.get("kind")
+            if kind == "image":
+                relationship_id = content.get("relationship_id")
+                if not relationship_id or relationship_id not in relationships:
+                    unresolved_items.append(
+                        {
+                            "reason": "missing_image_relationship",
+                            "relationship_id": relationship_id,
+                            "raw_text": "",
+                        }
+                    )
+                    continue
+                target = relationships[relationship_id]
+                if not target:
+                    unresolved_items.append(
+                        {
+                            "reason": "missing_image_relationship_target",
+                            "relationship_id": relationship_id,
+                            "raw_text": "",
+                        }
+                    )
+                    continue
+                member = _relationship_member(target)
+                if member not in package.members:
+                    unresolved_items.append(
+                        {
+                            "reason": "missing_image_package_member",
+                            "relationship_id": relationship_id,
+                            "target": target,
+                            "member": member,
+                            "raw_text": "",
+                        }
+                    )
+                    continue
+                asset = materialize_asset(package, member, asset_dir)
+                assets.append(
+                    {
+                        "relationship_id": relationship_id,
+                        "asset_id": asset.asset_id,
+                        "asset_sha256": asset.sha256,
+                        "asset_filename": asset.filename,
+                        "source_member": asset.source_member,
+                    }
+                )
+            elif kind == "unresolved_formula":
+                unresolved_items.append(
+                    {
+                        "reason": "FORMULA_UNRESOLVED",
+                        "source_omml": content.get("source_omml", ""),
+                        "error": content.get("error", ""),
+                        "raw_text": content.get("source_omml", ""),
+                    }
+                )
+            elif kind == "unresolved":
+                unresolved_items.append(
+                    {
+                        "reason": "unsupported_table_cell_child",
+                        "xml_tag": content.get("xml_tag", ""),
+                        "raw_text": content.get("text", ""),
+                    }
+                )
 
     blocks.append(
         _block(
@@ -151,17 +195,19 @@ def _append_table_block(
             },
         )
     )
-    for unresolved in unresolved_formulae:
+    for unresolved in unresolved_items:
+        relationship_id = unresolved.get("relationship_id")
         blocks.append(
             _block(
                 blocks,
                 "unresolved",
-                unresolved.get("source_omml", ""),
+                str(unresolved.get("raw_text", "")),
                 source_path,
+                relationship_id=(
+                    relationship_id if isinstance(relationship_id, str) else None
+                ),
                 metadata={
-                    "reason": "FORMULA_UNRESOLVED",
-                    "source_omml": unresolved.get("source_omml", ""),
-                    "error": unresolved.get("error", ""),
+                    **unresolved,
                     "container": "table_cell",
                 },
             )
@@ -288,7 +334,7 @@ def _append_paragraph_blocks(
                     relationships,
                     flush_text,
                 )
-            elif child.tag == f"{M}oMath":
+            elif child.tag in MATH_TAGS:
                 append_formula(child, child_path)
             elif child.tag == f"{W}pict":
                 textboxes = find_textboxes(child)
@@ -318,7 +364,7 @@ def _append_paragraph_blocks(
             child_path = f"{wrapper_path}/*[{child_index + 1}]"
             if child.tag == f"{W}r":
                 process_run(child, child_path)
-            elif child.tag == f"{M}oMath":
+            elif child.tag in MATH_TAGS:
                 append_formula(child, child_path)
             elif child.tag in RUN_WRAPPER_TAGS:
                 process_wrapper(child, child_path)
@@ -335,7 +381,7 @@ def _append_paragraph_blocks(
             continue
         if child.tag == f"{W}r":
             process_run(child, child_path)
-        elif child.tag == f"{M}oMath":
+        elif child.tag in MATH_TAGS:
             append_formula(child, child_path)
         elif child.tag in RUN_WRAPPER_TAGS:
             process_wrapper(child, child_path)
@@ -366,7 +412,10 @@ def _append_drawing(
     flush_text: Callable[[], None],
 ) -> None:
     flush_text()
-    for blip in drawing.iter(f"{A}blip"):
+    emitted = 0
+
+    def append_image(blip: ET.Element, element_path: str) -> None:
+        nonlocal emitted
         rel_id = blip.attrib.get(f"{R}embed")
         if not rel_id or rel_id not in relationships:
             blocks.append(
@@ -374,26 +423,117 @@ def _append_drawing(
                     blocks,
                     "unresolved",
                     "",
-                    source_path,
+                    element_path,
                     relationship_id=rel_id,
                     metadata={"reason": "missing_image_relationship"},
                 )
             )
-            continue
-        member = _relationship_member(relationships[rel_id])
+            emitted += 1
+            return
+        target = relationships[rel_id]
+        if not target:
+            blocks.append(
+                _block(
+                    blocks,
+                    "unresolved",
+                    "",
+                    element_path,
+                    relationship_id=rel_id,
+                    metadata={"reason": "missing_image_relationship_target"},
+                )
+            )
+            emitted += 1
+            return
+        member = _relationship_member(target)
+        if member not in package.members:
+            blocks.append(
+                _block(
+                    blocks,
+                    "unresolved",
+                    "",
+                    element_path,
+                    relationship_id=rel_id,
+                    metadata={
+                        "reason": "missing_image_package_member",
+                        "source_member": member,
+                    },
+                )
+            )
+            emitted += 1
+            return
         asset = materialize_asset(package, member, asset_dir)
         blocks.append(
             _block(
                 blocks,
                 "image",
                 "",
-                source_path,
+                element_path,
                 relationship_id=rel_id,
                 metadata={
                     "asset_id": asset.asset_id,
                     "asset_sha256": asset.sha256,
                     "asset_filename": asset.filename,
                     "source_member": asset.source_member,
+                },
+            )
+        )
+        emitted += 1
+
+    def append_textbox(content: ET.Element, element_path: str) -> None:
+        nonlocal emitted
+        text = "".join(node.text or "" for node in content.iter(f"{W}t"))
+        blocks.append(
+            _block(
+                blocks,
+                "textbox",
+                text,
+                element_path,
+                metadata={"anchor_hint": "drawing"},
+            )
+        )
+        emitted += 1
+
+    def walk(element: ET.Element, element_path: str) -> None:
+        nonlocal emitted
+        for child_index, child in enumerate(element):
+            child_path = f"{element_path}/*[{child_index + 1}]"
+            if child.tag == f"{W}txbxContent":
+                append_textbox(child, child_path)
+                continue
+            if child.tag == f"{A}blip":
+                append_image(child, child_path)
+                continue
+            before = emitted
+            walk(child, child_path)
+            if child.tag == f"{A}graphicData" and emitted == before:
+                raw_text = "".join(
+                    node.text or "" for node in child.iter(f"{W}t")
+                )
+                blocks.append(
+                    _block(
+                        blocks,
+                        "unresolved",
+                        raw_text,
+                        child_path,
+                        metadata={
+                            "reason": "unsupported_drawing_content",
+                            "xml_tag": child.tag,
+                        },
+                    )
+                )
+                emitted += 1
+
+    walk(drawing, source_path)
+    if emitted == 0 and len(drawing):
+        blocks.append(
+            _block(
+                blocks,
+                "unresolved",
+                "".join(node.text or "" for node in drawing.iter(f"{W}t")),
+                source_path,
+                metadata={
+                    "reason": "unsupported_drawing_content",
+                    "xml_tag": drawing.tag,
                 },
             )
         )
