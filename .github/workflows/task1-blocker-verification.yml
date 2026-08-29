@@ -1,0 +1,27 @@
+name: Task 1 Blocker Verification
+
+on:
+  push:
+    branches: [task1-blocker-verification]
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact develop head
+        uses: actions/checkout@v4
+        with:
+          ref: 4382817ecfb8fb1497a1f97b37230a2acba01749
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Task 1 parser tests
+        run: python -m pytest tests/unit/parser tests/golden/test_basic_document_ir.py -v
+      - name: Task 0 regression
+        run: python -m pytest tests/unit/test_config.py tests/unit/test_domain_models.py -v
+      - name: Ruff
+        run: python -m ruff check src tests
+      - name: Mypy
+        run: python -m mypy src/question_builder/config src/question_builder/domain src/question_builder/parser
