@@ -14,6 +14,15 @@ W = f"{{{W_NS}}}"
 M = f"{{{M_NS}}}"
 A = f"{{{A_NS}}}"
 R = f"{{{R_NS}}}"
+CELL_WRAPPER_TAGS = {
+    f"{W}hyperlink",
+    f"{W}smartTag",
+    f"{W}customXml",
+    f"{W}ins",
+    f"{W}del",
+    f"{W}moveFrom",
+    f"{W}moveTo",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,49 +144,111 @@ def _cell_content(
     kinds: list[str] = []
     rel_ids: list[str] = []
     contents: list[dict[str, str]] = []
-    for paragraph in cell.findall(f"{W}p"):
-        for child in paragraph:
+
+    def append_text(text: str) -> None:
+        if not text:
+            return
+        parts.append(text)
+        kinds.append("text")
+        contents.append({"kind": "text", "text": text})
+
+    def append_formula(element: ET.Element) -> None:
+        source_omml = ET.tostring(element, encoding="unicode")
+        try:
+            latex = omml_to_latex(element)
+        except FormulaConversionError as exc:
+            kinds.append("formula")
+            contents.append(
+                {
+                    "kind": "unresolved_formula",
+                    "source_omml": source_omml,
+                    "error": str(exc),
+                }
+            )
+            return
+        parts.append(latex)
+        kinds.append("formula")
+        contents.append(
+            {
+                "kind": "formula",
+                "latex": latex,
+                "source_omml": source_omml,
+            }
+        )
+
+    def append_unresolved(element: ET.Element) -> None:
+        text = "".join(node.text or "" for node in element.iter(f"{W}t"))
+        kinds.append("unresolved")
+        contents.append(
+            {
+                "kind": "unresolved",
+                "text": text,
+                "xml_tag": element.tag,
+            }
+        )
+
+    def process_drawing(drawing: ET.Element) -> None:
+        found_image = False
+        for node in drawing.iter():
+            if node.tag != f"{A}blip":
+                continue
+            found_image = True
+            rel_id = node.attrib.get(f"{R}embed")
+            kinds.append("image")
+            image_content = {"kind": "image"}
+            if rel_id:
+                rel_ids.append(rel_id)
+                image_content["relationship_id"] = rel_id
+            contents.append(image_content)
+        if not found_image:
+            append_unresolved(drawing)
+
+    def process_run(run: ET.Element) -> None:
+        for child in run:
+            if child.tag == f"{W}t":
+                append_text(child.text or "")
+            elif child.tag == f"{W}tab":
+                append_text("\t")
+            elif child.tag in {f"{W}br", f"{W}cr"}:
+                append_text("\n")
+            elif child.tag == f"{W}drawing":
+                process_drawing(child)
+            elif child.tag in {f"{M}oMath", f"{M}oMathPara"}:
+                append_formula(child)
+            elif child.tag == f"{W}rPr":
+                continue
+            else:
+                append_unresolved(child)
+
+    def process_wrapper(wrapper: ET.Element) -> None:
+        for child in wrapper:
             if child.tag == f"{W}r":
-                text = "".join(
-                    node.text or "" for node in child.iter(f"{W}t")
-                )
-                if text:
-                    parts.append(text)
-                    kinds.append("text")
-                    contents.append({"kind": "text", "text": text})
-                for blip in child.iter(f"{A}blip"):
-                    rel_id = blip.attrib.get(f"{R}embed")
-                    kinds.append("image")
-                    if rel_id:
-                        rel_ids.append(rel_id)
-                        contents.append(
-                            {"kind": "image", "relationship_id": rel_id}
-                        )
-                    else:
-                        contents.append({"kind": "image"})
-            elif child.tag == f"{M}oMath":
-                source_omml = ET.tostring(child, encoding="unicode")
-                try:
-                    latex = omml_to_latex(child)
-                except FormulaConversionError as exc:
-                    kinds.append("formula")
-                    contents.append(
-                        {
-                            "kind": "unresolved_formula",
-                            "source_omml": source_omml,
-                            "error": str(exc),
-                        }
-                    )
-                    continue
-                parts.append(latex)
-                kinds.append("formula")
-                contents.append(
-                    {
-                        "kind": "formula",
-                        "latex": latex,
-                        "source_omml": source_omml,
-                    }
-                )
+                process_run(child)
+            elif child.tag in {f"{M}oMath", f"{M}oMathPara"}:
+                append_formula(child)
+            elif child.tag in CELL_WRAPPER_TAGS:
+                process_wrapper(child)
+            else:
+                append_unresolved(child)
+
+    for child in cell:
+        if child.tag == f"{W}tcPr":
+            continue
+        if child.tag != f"{W}p":
+            append_unresolved(child)
+            continue
+        for paragraph_child in child:
+            if paragraph_child.tag == f"{W}pPr":
+                continue
+            if paragraph_child.tag == f"{W}r":
+                process_run(paragraph_child)
+            elif paragraph_child.tag in {f"{M}oMath", f"{M}oMathPara"}:
+                append_formula(paragraph_child)
+            elif paragraph_child.tag in CELL_WRAPPER_TAGS:
+                process_wrapper(paragraph_child)
+            else:
+                append_unresolved(paragraph_child)
+
     return "".join(parts), kinds, rel_ids, contents
 
 
