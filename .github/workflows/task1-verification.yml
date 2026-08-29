@@ -11,7 +11,7 @@ jobs:
       - name: Checkout exact Task 1 head
         uses: actions/checkout@v4
         with:
-          ref: 7be31e8f3cde0bb477256ff35d2d7dcb9d5847f4
+          ref: 4382817ecfb8fb1497a1f97b37230a2acba01749
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
