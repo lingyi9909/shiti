@@ -20,22 +20,52 @@ def _write_package(path: Path, members: dict[str, bytes]) -> None:
 def test_textbox_header_footer_noise_and_ole_are_explicit(tmp_path: Path) -> None:
     source = tmp_path / "advanced.docx"
     document_xml = f"""<?xml version='1.0' encoding='UTF-8'?>
-<w:document xmlns:w='{W_NS}' xmlns:v='{V_NS}' xmlns:o='{O_NS}' xmlns:r='{R_NS}' xmlns:m='{M_NS}'>
+<w:document
+  xmlns:w='{W_NS}'
+  xmlns:v='{V_NS}'
+  xmlns:o='{O_NS}'
+  xmlns:r='{R_NS}'
+  xmlns:m='{M_NS}'>
   <w:body>
     <w:p><w:r><w:t>Body question</w:t></w:r></w:p>
-    <w:p><w:r><w:pict><v:shape><v:textbox><w:txbxContent><w:p><w:r><w:t>Textbox text</w:t></w:r></w:p></w:txbxContent></v:textbox></v:shape></w:pict></w:r></w:p>
-    <w:p><w:r><w:object><o:OLEObject r:id='rIdOle'/></w:object></w:r></w:p>
-    <w:sectPr><w:headerReference w:type='default' r:id='rIdHeader'/><w:footerReference w:type='default' r:id='rIdFooter'/></w:sectPr>
+    <w:p><w:r><w:pict><v:shape><v:textbox><w:txbxContent>
+      <w:p><w:r><w:t>Textbox text</w:t></w:r></w:p>
+    </w:txbxContent></v:textbox></v:shape></w:pict></w:r></w:p>
+    <w:p><w:r><w:object>
+      <o:OLEObject r:id='rIdOle'/>
+    </w:object></w:r></w:p>
+    <w:sectPr>
+      <w:headerReference w:type='default' r:id='rIdHeader'/>
+      <w:footerReference w:type='default' r:id='rIdFooter'/>
+    </w:sectPr>
   </w:body>
 </w:document>""".encode()
     rels = f"""<?xml version='1.0' encoding='UTF-8'?>
 <Relationships xmlns='{PKG_REL_NS}'>
-  <Relationship Id='rIdHeader' Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/header' Target='header1.xml'/>
-  <Relationship Id='rIdFooter' Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer' Target='footer1.xml'/>
-  <Relationship Id='rIdOle' Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject' Target='embeddings/oleObject1.bin'/>
+  <Relationship
+    Id='rIdHeader'
+    Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/header'
+    Target='header1.xml'/>
+  <Relationship
+    Id='rIdFooter'
+    Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer'
+    Target='footer1.xml'/>
+  <Relationship
+    Id='rIdOle'
+    Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject'
+    Target='embeddings/oleObject1.bin'/>
 </Relationships>""".encode()
-    header = f"<w:hdr xmlns:w='{W_NS}'><w:p><w:r><w:t>2026 Math Exam</w:t></w:r></w:p></w:hdr>".encode()
-    footer = f"<w:ftr xmlns:w='{W_NS}'><w:p><w:r><w:t>www.example.com</w:t></w:r></w:p><w:p><w:r><w:t>www.example.com</w:t></w:r></w:p></w:ftr>".encode()
+    header = (
+        f"<w:hdr xmlns:w='{W_NS}'>"
+        "<w:p><w:r><w:t>2026 Math Exam</w:t></w:r></w:p>"
+        "</w:hdr>"
+    ).encode()
+    footer = (
+        f"<w:ftr xmlns:w='{W_NS}'>"
+        "<w:p><w:r><w:t>www.example.com</w:t></w:r></w:p>"
+        "<w:p><w:r><w:t>www.example.com</w:t></w:r></w:p>"
+        "</w:ftr>"
+    ).encode()
     _write_package(
         source,
         {
@@ -56,7 +86,9 @@ def test_textbox_header_footer_noise_and_ole_are_explicit(tmp_path: Path) -> Non
     assert "noise_candidate" in kinds
     assert "unresolved" in kinds
 
-    body_text = "".join(block.raw_text for block in parsed.blocks if block.type == "paragraph")
+    body_text = "".join(
+        block.raw_text for block in parsed.blocks if block.type == "paragraph"
+    )
     assert "2026 Math Exam" not in body_text
     assert "www.example.com" not in body_text
 
@@ -65,7 +97,8 @@ def test_textbox_header_footer_noise_and_ole_are_explicit(tmp_path: Path) -> Non
     assert textbox.metadata["anchor_hint"]
 
     unresolved = next(
-        block for block in parsed.blocks
+        block
+        for block in parsed.blocks
         if block.type == "unresolved" and block.metadata.get("embedding_path")
     )
     assert unresolved.metadata["reason"] == "FORMULA_UNRESOLVED"
