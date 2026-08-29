@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 BlockType = Literal[
     "paragraph",
@@ -31,6 +39,16 @@ def freeze_value[T](value: T) -> T:
     return value
 
 
+def thaw_value(value: Any) -> Any:
+    """Convert frozen domain containers into stable serializer-friendly values."""
+
+    if isinstance(value, Mapping):
+        return {key: thaw_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [thaw_value(item) for item in value]
+    return value
+
+
 class DomainModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -55,6 +73,12 @@ class ContentBlock(DomainModel):
         if value is None:
             return None
         return freeze_value(value)
+
+    @field_serializer("numbering", "recognized", "metadata")
+    def serialize_mapping(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        return cast(dict[str, Any], thaw_value(value))
 
 
 class DocumentIR(DomainModel):
