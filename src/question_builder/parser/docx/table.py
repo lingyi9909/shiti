@@ -25,6 +25,7 @@ class ParsedCell:
     rowspan: int = 1
     content_kinds: tuple[str, ...] = ()
     relationship_ids: tuple[str, ...] = ()
+    contents: tuple[dict[str, str], ...] = ()
     vertical_continuation: bool = False
 
 
@@ -58,7 +59,7 @@ def parse_table(table: ET.Element) -> ParsedTable:
                 if vmerge_node is not None:
                     vmerge = vmerge_node.attrib.get(f"{W}val", "continue")
 
-            text, kinds, rel_ids = _cell_content(cell)
+            text, kinds, rel_ids, contents = _cell_content(cell)
             continuation = vmerge == "continue"
             parsed = ParsedCell(
                 row=row_index,
@@ -67,6 +68,7 @@ def parse_table(table: ET.Element) -> ParsedTable:
                 colspan=colspan,
                 content_kinds=tuple(kinds),
                 relationship_ids=tuple(rel_ids),
+                contents=tuple(contents),
                 vertical_continuation=continuation,
             )
             cell_index = len(cells)
@@ -95,6 +97,7 @@ def parse_table(table: ET.Element) -> ParsedTable:
             rowspan=rowspan,
             content_kinds=cell.content_kinds,
             relationship_ids=cell.relationship_ids,
+            contents=cell.contents,
             vertical_continuation=cell.vertical_continuation,
         )
         adjusted.append(updated)
@@ -108,8 +111,14 @@ def parse_table(table: ET.Element) -> ParsedTable:
                 }
             )
 
-    is_complex = bool(merges) or any(cell.vertical_continuation for cell in adjusted)
-    rendered = _render_html(adjusted, len(rows)) if is_complex else _render_markdown(rows)
+    is_complex = bool(merges) or any(
+        cell.vertical_continuation for cell in adjusted
+    )
+    rendered = (
+        _render_html(adjusted, len(rows))
+        if is_complex
+        else _render_markdown(rows)
+    )
     return ParsedTable(
         rows=tuple(rows),
         cells=tuple(adjusted),
@@ -119,38 +128,67 @@ def parse_table(table: ET.Element) -> ParsedTable:
     )
 
 
-def _cell_content(cell: ET.Element) -> tuple[str, list[str], list[str]]:
+def _cell_content(
+    cell: ET.Element,
+) -> tuple[str, list[str], list[str], list[dict[str, str]]]:
     parts: list[str] = []
     kinds: list[str] = []
     rel_ids: list[str] = []
+    contents: list[dict[str, str]] = []
     for paragraph in cell.findall(f"{W}p"):
         for child in paragraph:
             if child.tag == f"{W}r":
-                text = "".join(node.text or "" for node in child.iter(f"{W}t"))
+                text = "".join(
+                    node.text or "" for node in child.iter(f"{W}t")
+                )
                 if text:
                     parts.append(text)
                     kinds.append("text")
+                    contents.append({"kind": "text", "text": text})
                 for blip in child.iter(f"{A}blip"):
                     rel_id = blip.attrib.get(f"{R}embed")
+                    kinds.append("image")
                     if rel_id:
                         rel_ids.append(rel_id)
-                    kinds.append("image")
+                        contents.append(
+                            {"kind": "image", "relationship_id": rel_id}
+                        )
+                    else:
+                        contents.append({"kind": "image"})
             elif child.tag == f"{M}oMath":
+                source_omml = ET.tostring(child, encoding="unicode")
                 try:
                     latex = omml_to_latex(child)
-                except FormulaConversionError:
-                    latex = ""
-                if latex:
-                    parts.append(latex)
+                except FormulaConversionError as exc:
+                    kinds.append("formula")
+                    contents.append(
+                        {
+                            "kind": "unresolved_formula",
+                            "source_omml": source_omml,
+                            "error": str(exc),
+                        }
+                    )
+                    continue
+                parts.append(latex)
                 kinds.append("formula")
-    return "".join(parts), kinds, rel_ids
+                contents.append(
+                    {
+                        "kind": "formula",
+                        "latex": latex,
+                        "source_omml": source_omml,
+                    }
+                )
+    return "".join(parts), kinds, rel_ids, contents
 
 
 def _render_markdown(rows: list[tuple[str, ...]]) -> str:
     if not rows:
         return ""
     width = max(len(row) for row in rows)
-    normalized = [tuple(list(row) + [""] * (width - len(row))) for row in rows]
+    normalized = [
+        tuple(list(row) + [""] * (width - len(row)))
+        for row in rows
+    ]
     lines = ["| " + " | ".join(normalized[0]) + " |"]
     lines.append("| " + " | ".join("---" for _ in range(width)) + " |")
     lines.extend("| " + " | ".join(row) + " |" for row in normalized[1:])
