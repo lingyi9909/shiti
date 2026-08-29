@@ -7,9 +7,7 @@ W = f"{{{W_NS}}}"
 
 
 def _xml(body: str) -> ET.Element:
-    return ET.fromstring(
-        f"<w:tbl xmlns:w='{W_NS}'>{body}</w:tbl>"
-    )
+    return ET.fromstring(f"<w:tbl xmlns:w='{W_NS}'>{body}</w:tbl>")
 
 
 def test_plain_table_exposes_markdown_and_cell_order() -> None:
@@ -33,10 +31,16 @@ def test_gridspan_and_vmerge_expose_html_and_merge_evidence() -> None:
     table = _xml(
         """
         <w:tr>
-          <w:tc><w:tcPr><w:gridSpan w:val='2'/></w:tcPr><w:p><w:r><w:t>AB</w:t></w:r></w:p></w:tc>
+          <w:tc>
+            <w:tcPr><w:gridSpan w:val='2'/></w:tcPr>
+            <w:p><w:r><w:t>AB</w:t></w:r></w:p>
+          </w:tc>
         </w:tr>
         <w:tr>
-          <w:tc><w:tcPr><w:vMerge w:val='restart'/></w:tcPr><w:p><w:r><w:t>C</w:t></w:r></w:p></w:tc>
+          <w:tc>
+            <w:tcPr><w:vMerge w:val='restart'/></w:tcPr>
+            <w:p><w:r><w:t>C</w:t></w:r></w:p>
+          </w:tc>
           <w:tc><w:p><w:r><w:t>D</w:t></w:r></w:p></w:tc>
         </w:tr>
         <w:tr>
@@ -60,7 +64,8 @@ def test_gridspan_and_vmerge_expose_html_and_merge_evidence() -> None:
 def test_cell_preserves_text_formula_and_image_child_order() -> None:
     table = ET.fromstring(
         f"""
-        <w:tbl xmlns:w='{W_NS}' xmlns:m='http://schemas.openxmlformats.org/officeDocument/2006/math'
+        <w:tbl xmlns:w='{W_NS}'
+          xmlns:m='http://schemas.openxmlformats.org/officeDocument/2006/math'
           xmlns:a='http://schemas.openxmlformats.org/drawingml/2006/main'
           xmlns:r='http://schemas.openxmlformats.org/officeDocument/2006/relationships'>
           <w:tr><w:tc><w:p>
@@ -75,5 +80,10 @@ def test_cell_preserves_text_formula_and_image_child_order() -> None:
 
     parsed = parse_table(table)
 
-    assert parsed.cells[0].content_kinds == ("text", "formula", "image", "text")
+    assert parsed.cells[0].content_kinds == (
+        "text",
+        "formula",
+        "image",
+        "text",
+    )
     assert parsed.cells[0].relationship_ids == ("rId9",)
