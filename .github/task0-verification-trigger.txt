@@ -1,1 +1,1 @@
-Trigger exact-head Task 0 serialization regression for 31086ccef4d596c7ce42f9cfa0515ec616b93b2d.
+Trigger exact-head Task 0 serialization fix verification for f4f457fa883bc03d40c1fbeec54e0f73e46dff2b.
