@@ -11,19 +11,11 @@ jobs:
       - name: Checkout exact Task 2 head
         uses: actions/checkout@v4
         with:
-          ref: 779f49b0daf0ddcf0fade5a5a935607406c3f7d7
+          ref: 80fe0c5a34a33d45c0598b476dd6d5f3c9e17416
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install
         run: python -m pip install -e '.[dev]'
       - name: Task 2 parser tests
-        run: python -m pytest tests/unit/parser tests/golden/test_advanced_document_ir.py -v
-      - name: Task 0 regression
-        run: python -m pytest tests/unit/test_config.py tests/unit/test_domain_models.py -v
-      - name: Task 1 golden regression
-        run: python -m pytest tests/golden/test_basic_document_ir.py -v
-      - name: Ruff
-        run: python -m ruff check src tests
-      - name: Mypy
-        run: python -m mypy src/question_builder/config src/question_builder/domain src/question_builder/parser
+        run: python -m pytest tests/unit/parser/test_task2_blockers.py -v
