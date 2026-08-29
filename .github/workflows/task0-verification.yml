@@ -12,7 +12,7 @@ jobs:
       - name: Checkout exact Task 0 head
         uses: actions/checkout@v4
         with:
-          ref: c3fb7652253734186f72589bcdc9cfb1ade25d87
+          ref: 315a9dab1438db701a8545786e10d8966a2ac44c
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
