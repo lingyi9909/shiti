@@ -1,3 +1,4 @@
+from base64 import b64decode
 from pathlib import Path
 
 from docx import Document
@@ -5,9 +6,12 @@ from docx.enum.text import WD_BREAK
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches
-from PIL import Image
 
 from question_builder.parser.docx.body import parse_docx
+
+PNG_1X1 = b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
 
 
 def _add_numbering(paragraph: object, num_id: int, ilvl: int) -> None:
@@ -25,7 +29,7 @@ def _add_numbering(paragraph: object, num_id: int, ilvl: int) -> None:
 
 def _build_fixture(path: Path) -> None:
     image_path = path.with_suffix(".png")
-    Image.new("RGB", (8, 8), "white").save(image_path)
+    image_path.write_bytes(PNG_1X1)
 
     document = Document()
     first = document.add_paragraph("First question")
