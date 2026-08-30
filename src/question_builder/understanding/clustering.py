@@ -123,10 +123,10 @@ def _can_join_cluster(
     for member in members:
         if _hard_conflict(candidate, member):
             return None
-        evidence = _pair_evidence(candidate, member)
-        if evidence is not None:
+        candidate_evidence = _pair_evidence(candidate, member)
+        if candidate_evidence is not None:
             found_strong_pair = True
-            pair_evidence.extend(evidence)
+            pair_evidence.extend(candidate_evidence)
     if not found_strong_pair:
         return None
     return tuple(dict.fromkeys(pair_evidence))
@@ -141,11 +141,11 @@ def build_exam_clusters(
     for understanding in understandings:
         joined = False
         for index, members in enumerate(groups):
-            evidence = _can_join_cluster(understanding, members)
-            if evidence is None:
+            candidate_evidence = _can_join_cluster(understanding, members)
+            if candidate_evidence is None:
                 continue
             members.append(understanding)
-            group_evidence[index].extend(evidence)
+            group_evidence[index].extend(candidate_evidence)
             joined = True
             break
         if not joined:
@@ -153,9 +153,9 @@ def build_exam_clusters(
             group_evidence.append(["singleton_conservative"])
 
     clusters: list[ExamCluster] = []
-    for members, evidence in zip(groups, group_evidence, strict=True):
+    for members, cluster_evidence in zip(groups, group_evidence, strict=True):
         document_ids = tuple(member.document_id for member in members)
-        normalized_evidence = list(dict.fromkeys(evidence))
+        normalized_evidence = list(dict.fromkeys(cluster_evidence))
         if len(document_ids) > 1:
             normalized_evidence = [
                 item for item in normalized_evidence if item != "singleton_conservative"
