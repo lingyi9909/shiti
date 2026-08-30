@@ -168,3 +168,101 @@ def test_table_images_missing_relationship_target_or_member_are_explicit_unresol
         "missing_image_relationship_target",
         "missing_image_package_member",
     }
+
+
+def test_mixed_drawing_textbox_and_unsupported_sibling_preserve_order(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "mixed-textbox.docx"
+    document = f"""<?xml version='1.0' encoding='UTF-8'?>
+<w:document xmlns:w='{W_NS}' xmlns:a='{A_NS}'>
+  <w:body><w:p><w:r><w:drawing><a:graphic><a:graphicData>
+    <w:txbxContent><w:p><w:r><w:t>box</w:t></w:r></w:p></w:txbxContent>
+    <a:unsupported/>
+  </a:graphicData></a:graphic></w:drawing></w:r></w:p></w:body>
+</w:document>"""
+    _write_docx(source, document)
+
+    parsed = parse_docx(source, tmp_path / "assets")
+    relevant = [block for block in parsed.blocks if block.type != "paragraph"]
+
+    assert [block.type for block in relevant] == ["textbox", "unresolved"]
+    assert relevant[0].raw_text == "box"
+    assert relevant[1].metadata["reason"] == "unsupported_drawing_content"
+
+
+def test_mixed_drawing_image_and_unsupported_sibling_preserve_order(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "mixed-image.docx"
+    document = f"""<?xml version='1.0' encoding='UTF-8'?>
+<w:document xmlns:w='{W_NS}' xmlns:r='{R_NS}' xmlns:a='{A_NS}'>
+  <w:body><w:p><w:r><w:drawing><a:graphic><a:graphicData>
+    <a:blip r:embed='rIdImage'/><a:unsupported/>
+  </a:graphicData></a:graphic></w:drawing></w:r></w:p></w:body>
+</w:document>"""
+    rels = f"""<Relationships xmlns='{PKG_REL_NS}'>
+  <Relationship Id='rIdImage' Type='image' Target='media/image1.png'/>
+</Relationships>""".encode()
+    _write_docx(
+        source,
+        document,
+        {
+            "word/_rels/document.xml.rels": rels,
+            "word/media/image1.png": b"png",
+        },
+    )
+
+    parsed = parse_docx(source, tmp_path / "assets")
+    relevant = [block for block in parsed.blocks if block.type != "paragraph"]
+
+    assert [block.type for block in relevant] == ["image", "unresolved"]
+    assert relevant[1].metadata["reason"] == "unsupported_drawing_content"
+
+
+def test_table_cell_mixed_drawing_keeps_image_and_unresolved_sibling() -> None:
+    table = ET.fromstring(
+        f"""<w:tbl xmlns:w='{W_NS}' xmlns:r='{R_NS}' xmlns:a='{A_NS}'>
+  <w:tr><w:tc><w:p><w:r><w:drawing><a:graphic><a:graphicData>
+    <a:blip r:embed='rIdImage'/><a:unsupported/>
+  </a:graphicData></a:graphic></w:drawing></w:r></w:p></w:tc></w:tr>
+</w:tbl>"""
+    )
+
+    cell = parse_table(table).cells[0]
+
+    assert cell.content_kinds == ("image", "unresolved")
+    assert cell.contents[0]["relationship_id"] == "rIdImage"
+    assert cell.contents[1]["xml_tag"].endswith("unsupported")
+
+
+def test_textbox_preserves_evidence_for_formula_and_image_content(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "textbox-critical-content.docx"
+    document = f"""<?xml version='1.0' encoding='UTF-8'?>
+<w:document xmlns:w='{W_NS}' xmlns:r='{R_NS}' xmlns:a='{A_NS}' xmlns:m='{M_NS}'>
+  <w:body><w:p><w:r><w:drawing><a:graphic><a:graphicData>
+    <w:txbxContent><w:p>
+      <w:r><w:t>box</w:t></w:r>
+      <m:oMath><m:r><m:t>x</m:t></m:r></m:oMath>
+      <w:r><w:drawing><a:blip r:embed='rIdInner'/></w:drawing></w:r>
+    </w:p></w:txbxContent>
+  </a:graphicData></a:graphic></w:drawing></w:r></w:p></w:body>
+</w:document>"""
+    _write_docx(source, document)
+
+    parsed = parse_docx(source, tmp_path / "assets")
+    textbox = next(block for block in parsed.blocks if block.type == "textbox")
+    textbox_evidence = [
+        block
+        for block in parsed.blocks
+        if block.metadata.get("container") == "textbox"
+    ]
+
+    assert textbox.raw_text == "box"
+    assert {block.metadata.get("content_kind") for block in textbox_evidence} == {
+        "formula",
+        "drawing",
+    }
+    assert all(block.type == "unresolved" for block in textbox_evidence)
