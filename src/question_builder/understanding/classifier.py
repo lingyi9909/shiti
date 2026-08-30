@@ -205,7 +205,11 @@ def extract_document_features(document: DocumentIR) -> DocumentFeatures:
         dict.fromkeys(
             [
                 *title_blocks,
-                *(block.block_id for block in blocks if block.type in {"header", "footer"} and _text(block)),
+                *(
+                    block.block_id
+                    for block in blocks
+                    if block.type in {"header", "footer"} and _text(block)
+                ),
             ]
         )
     )
@@ -303,7 +307,12 @@ def parse_llm_classification(payload: str, document: DocumentIR) -> LLMClassific
         ) from exc
 
     cited = parsed.get("cited_block_ids")
-    if not isinstance(cited, list) or not cited or not all(isinstance(item, str) and item for item in cited):
+    cited_is_valid = (
+        isinstance(cited, list)
+        and bool(cited)
+        and all(isinstance(item, str) and item for item in cited)
+    )
+    if not cited_is_valid:
         raise ClassificationContractError("cited_block_ids must be a non-empty string list")
 
     known_ids = {block.block_id for block in document.blocks}
