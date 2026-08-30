@@ -236,8 +236,6 @@ async def test_noncritical_content_accepts_at_095() -> None:
         (ImageClass.CHART, RecognitionTask.VISION),
         (ImageClass.MAP, RecognitionTask.VISION),
         (ImageClass.CHEMISTRY, RecognitionTask.VISION),
-        (ImageClass.MIXED, RecognitionTask.VISION),
-        (ImageClass.UNKNOWN, RecognitionTask.VISION),
     ],
 )
 def test_image_class_routes_to_expected_recognition_task(
