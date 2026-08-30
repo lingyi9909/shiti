@@ -169,7 +169,16 @@ class RecognitionRouter:
         *,
         primary: Provider,
         fallback: Provider | None = None,
+        multimodal_llm: LLMProvider | None = None,
     ) -> RecognitionRoutingResult:
+        expected_task = self.task_for_image_class(request.image_class)
+        if request.task is not expected_task:
+            raise RecognitionRejected(
+                "image_class_task_mismatch: "
+                f"{request.image_class.value} requires {expected_task.value}, "
+                f"got {request.task.value}"
+            )
+
         try:
             primary_result = await self._call_provider(primary, request)
         except ProviderSchemaError as exc:
@@ -195,6 +204,12 @@ class RecognitionRouter:
             )
 
         if primary_result.normalized_score >= accept_threshold:
+            if request.image_class is ImageClass.QUESTION_SCREENSHOT:
+                return await self._verify_question_screenshot(
+                    request,
+                    primary_result,
+                    multimodal_llm,
+                )
             return RecognitionRoutingResult(
                 decision=RecognitionDecision.ACCEPT,
                 reason="primary_accept",
@@ -206,6 +221,13 @@ class RecognitionRouter:
             return RecognitionRoutingResult(
                 decision=RecognitionDecision.REJECT,
                 reason="fallback_required",
+                primary_result=primary_result,
+            )
+
+        if (primary.provider, primary.model) == (fallback.provider, fallback.model):
+            return RecognitionRoutingResult(
+                decision=RecognitionDecision.REJECT,
+                reason="fallback_not_independent",
                 primary_result=primary_result,
             )
 
@@ -246,12 +268,75 @@ class RecognitionRouter:
                 fallback_result=fallback_result,
             )
 
+        if request.image_class is ImageClass.QUESTION_SCREENSHOT:
+            return await self._verify_question_screenshot(
+                request,
+                fallback_result,
+                multimodal_llm,
+                primary_result=primary_result,
+            )
+
         return RecognitionRoutingResult(
             decision=RecognitionDecision.ACCEPT,
             reason="fallback_verified",
             result=fallback_result,
             primary_result=primary_result,
             fallback_result=fallback_result,
+        )
+
+    async def _verify_question_screenshot(
+        self,
+        request: RecognitionRequest,
+        vision_result: RecognitionResult,
+        multimodal_llm: LLMProvider | None,
+        *,
+        primary_result: RecognitionResult | None = None,
+    ) -> RecognitionRoutingResult:
+        if multimodal_llm is None:
+            return RecognitionRoutingResult(
+                decision=RecognitionDecision.REJECT,
+                reason="multimodal_llm_required",
+                primary_result=primary_result or vision_result,
+                fallback_result=vision_result if primary_result is not None else None,
+            )
+
+        llm_request = RecognitionRequest(
+            task=RecognitionTask.LLM,
+            image_class=request.image_class,
+            input_ref=request.input_ref,
+            critical=request.critical,
+        )
+        try:
+            llm_result = await self._call_provider(multimodal_llm, llm_request)
+        except ProviderSchemaError as exc:
+            raise RecognitionRejected(f"provider_contract_error: {exc}") from exc
+        except MissingCalibrationError:
+            return RecognitionRoutingResult(
+                decision=RecognitionDecision.REJECT,
+                reason="missing_calibration",
+                primary_result=primary_result or vision_result,
+                fallback_result=vision_result if primary_result is not None else None,
+            )
+
+        accept_threshold = (
+            self._thresholds.critical_recognition_accept
+            if request.critical
+            else self._thresholds.noncritical_recognition_accept
+        )
+        if llm_result.normalized_score < accept_threshold:
+            return RecognitionRoutingResult(
+                decision=RecognitionDecision.REJECT,
+                reason="multimodal_llm_not_verified",
+                primary_result=primary_result or vision_result,
+                fallback_result=vision_result if primary_result is not None else None,
+            )
+
+        return RecognitionRoutingResult(
+            decision=RecognitionDecision.ACCEPT,
+            reason="question_screenshot_multimodal_verified",
+            result=llm_result,
+            primary_result=primary_result or vision_result,
+            fallback_result=vision_result if primary_result is not None else None,
         )
 
     async def _call_provider(
