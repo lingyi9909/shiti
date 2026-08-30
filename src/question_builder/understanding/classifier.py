@@ -5,7 +5,6 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
 
 from question_builder.domain.document import ContentBlock, DocumentIR
 
@@ -290,42 +289,48 @@ def classify_document(
 
 def parse_llm_classification(payload: str, document: DocumentIR) -> LLMClassificationEvidence:
     try:
-        parsed: Any = json.loads(payload)
+        parsed: object = json.loads(payload)
     except json.JSONDecodeError as exc:
         raise ClassificationContractError("LLM classification must be valid JSON") from exc
 
     if not isinstance(parsed, dict):
         raise ClassificationContractError("LLM classification must be a JSON object")
 
-    class_value = parsed.get("document_class")
+    allowed = ", ".join(item.value for item in DocumentClass)
+    class_value: object = parsed.get("document_class")
+    if not isinstance(class_value, str):
+        raise ClassificationContractError(
+            f"document_class must be one allowed document_class: {allowed}"
+        )
     try:
         document_class = DocumentClass(class_value)
-    except (TypeError, ValueError) as exc:
-        allowed = ", ".join(item.value for item in DocumentClass)
+    except ValueError as exc:
         raise ClassificationContractError(
             f"document_class must be one allowed document_class: {allowed}"
         ) from exc
 
-    cited = parsed.get("cited_block_ids")
-    cited_is_valid = (
-        isinstance(cited, list)
-        and bool(cited)
-        and all(isinstance(item, str) and item for item in cited)
-    )
-    if not cited_is_valid:
+    cited_value: object = parsed.get("cited_block_ids")
+    if not isinstance(cited_value, list) or not cited_value:
         raise ClassificationContractError("cited_block_ids must be a non-empty string list")
+    cited: list[str] = []
+    for item in cited_value:
+        if not isinstance(item, str) or not item:
+            raise ClassificationContractError(
+                "cited_block_ids must be a non-empty string list"
+            )
+        cited.append(item)
 
     known_ids = {block.block_id for block in document.blocks}
     unknown_ids = [block_id for block_id in cited if block_id not in known_ids]
     if unknown_ids:
         raise ClassificationContractError(f"unknown cited block: {unknown_ids[0]}")
 
-    reason = parsed.get("reason", "")
-    if not isinstance(reason, str):
+    reason_value: object = parsed.get("reason", "")
+    if not isinstance(reason_value, str):
         raise ClassificationContractError("reason must be a string when present")
 
     return LLMClassificationEvidence(
         document_class=document_class,
         cited_block_ids=tuple(dict.fromkeys(cited)),
-        reason=reason,
+        reason=reason_value,
     )
