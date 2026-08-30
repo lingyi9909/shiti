@@ -188,19 +188,27 @@ def _cell_content(
         )
 
     def process_drawing(drawing: ET.Element) -> None:
-        found_image = False
-        for node in drawing.iter():
-            if node.tag != f"{A}blip":
-                continue
-            found_image = True
-            rel_id = node.attrib.get(f"{R}embed")
-            kinds.append("image")
-            image_content = {"kind": "image"}
-            if rel_id:
-                rel_ids.append(rel_id)
-                image_content["relationship_id"] = rel_id
-            contents.append(image_content)
-        if not found_image:
+        starting_content_count = len(contents)
+
+        def walk(element: ET.Element) -> None:
+            for child in element:
+                if child.tag == f"{A}blip":
+                    rel_id = child.attrib.get(f"{R}embed")
+                    kinds.append("image")
+                    image_content = {"kind": "image"}
+                    if rel_id:
+                        rel_ids.append(rel_id)
+                        image_content["relationship_id"] = rel_id
+                    contents.append(image_content)
+                    continue
+
+                before = len(contents)
+                walk(child)
+                if element.tag == f"{A}graphicData" and len(contents) == before:
+                    append_unresolved(child)
+
+        walk(drawing)
+        if len(contents) == starting_content_count:
             append_unresolved(drawing)
 
     def process_run(run: ET.Element) -> None:
