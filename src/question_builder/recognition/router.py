@@ -210,6 +210,12 @@ class RecognitionRouter:
                     primary_result,
                     multimodal_llm,
                 )
+            if request.image_class in (ImageClass.MIXED, ImageClass.UNKNOWN):
+                return await self._verify_multimodal_fallback(
+                    request,
+                    primary_result,
+                    multimodal_llm,
+                )
             return RecognitionRoutingResult(
                 decision=RecognitionDecision.ACCEPT,
                 reason="primary_accept",
@@ -275,6 +281,13 @@ class RecognitionRouter:
                 multimodal_llm,
                 primary_result=primary_result,
             )
+        if request.image_class in (ImageClass.MIXED, ImageClass.UNKNOWN):
+            return await self._verify_multimodal_fallback(
+                request,
+                fallback_result,
+                multimodal_llm,
+                primary_result=primary_result,
+            )
 
         return RecognitionRoutingResult(
             decision=RecognitionDecision.ACCEPT,
@@ -334,6 +347,61 @@ class RecognitionRouter:
         return RecognitionRoutingResult(
             decision=RecognitionDecision.ACCEPT,
             reason="question_screenshot_multimodal_verified",
+            result=llm_result,
+            primary_result=primary_result or vision_result,
+            fallback_result=vision_result if primary_result is not None else None,
+        )
+
+    async def _verify_multimodal_fallback(
+        self,
+        request: RecognitionRequest,
+        vision_result: RecognitionResult,
+        multimodal_llm: LLMProvider | None,
+        *,
+        primary_result: RecognitionResult | None = None,
+    ) -> RecognitionRoutingResult:
+        if multimodal_llm is None:
+            return RecognitionRoutingResult(
+                decision=RecognitionDecision.REJECT,
+                reason="multimodal_llm_required",
+                primary_result=primary_result or vision_result,
+                fallback_result=vision_result if primary_result is not None else None,
+            )
+
+        llm_request = RecognitionRequest(
+            task=RecognitionTask.LLM,
+            image_class=request.image_class,
+            input_ref=request.input_ref,
+            critical=request.critical,
+        )
+        try:
+            llm_result = await self._call_provider(multimodal_llm, llm_request)
+        except ProviderSchemaError as exc:
+            raise RecognitionRejected(f"provider_contract_error: {exc}") from exc
+        except MissingCalibrationError:
+            return RecognitionRoutingResult(
+                decision=RecognitionDecision.REJECT,
+                reason="missing_calibration",
+                primary_result=primary_result or vision_result,
+                fallback_result=vision_result if primary_result is not None else None,
+            )
+
+        accept_threshold = (
+            self._thresholds.critical_recognition_accept
+            if request.critical
+            else self._thresholds.noncritical_recognition_accept
+        )
+        if llm_result.normalized_score < accept_threshold:
+            return RecognitionRoutingResult(
+                decision=RecognitionDecision.REJECT,
+                reason="multimodal_llm_not_verified",
+                primary_result=primary_result or vision_result,
+                fallback_result=vision_result if primary_result is not None else None,
+            )
+
+        return RecognitionRoutingResult(
+            decision=RecognitionDecision.ACCEPT,
+            reason="multimodal_fallback_verified",
             result=llm_result,
             primary_result=primary_result or vision_result,
             fallback_result=vision_result if primary_result is not None else None,
