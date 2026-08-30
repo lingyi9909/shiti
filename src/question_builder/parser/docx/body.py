@@ -481,6 +481,90 @@ def _append_drawing(
         )
         emitted += 1
 
+    def append_drawing_unresolved(element: ET.Element, element_path: str) -> None:
+        nonlocal emitted
+        raw_text = "".join(node.text or "" for node in element.iter(f"{W}t"))
+        blocks.append(
+            _block(
+                blocks,
+                "unresolved",
+                raw_text,
+                element_path,
+                metadata={
+                    "reason": "unsupported_drawing_content",
+                    "xml_tag": element.tag,
+                    "source_xml": ET.tostring(element, encoding="unicode"),
+                },
+            )
+        )
+        emitted += 1
+
+    def preserve_textbox_critical(element: ET.Element, element_path: str) -> None:
+        nonlocal emitted
+        for child_index, child in enumerate(element):
+            child_path = f"{element_path}/*[{child_index + 1}]"
+            if child.tag in MATH_TAGS:
+                source_xml = ET.tostring(child, encoding="unicode")
+                blocks.append(
+                    _block(
+                        blocks,
+                        "unresolved",
+                        source_xml,
+                        child_path,
+                        metadata={
+                            "reason": "unsupported_textbox_content",
+                            "container": "textbox",
+                            "content_kind": "formula",
+                            "source_xml": source_xml,
+                        },
+                    )
+                )
+                emitted += 1
+                continue
+            if child.tag == f"{W}drawing":
+                source_xml = ET.tostring(child, encoding="unicode")
+                relationship_ids = tuple(
+                    rel_id
+                    for blip in child.iter(f"{A}blip")
+                    if (rel_id := blip.attrib.get(f"{R}embed"))
+                )
+                blocks.append(
+                    _block(
+                        blocks,
+                        "unresolved",
+                        "",
+                        child_path,
+                        metadata={
+                            "reason": "unsupported_textbox_content",
+                            "container": "textbox",
+                            "content_kind": "drawing",
+                            "relationship_ids": relationship_ids,
+                            "source_xml": source_xml,
+                        },
+                    )
+                )
+                emitted += 1
+                continue
+            if child.tag == f"{W}tbl":
+                source_xml = ET.tostring(child, encoding="unicode")
+                blocks.append(
+                    _block(
+                        blocks,
+                        "unresolved",
+                        "".join(node.text or "" for node in child.iter(f"{W}t")),
+                        child_path,
+                        metadata={
+                            "reason": "unsupported_textbox_content",
+                            "container": "textbox",
+                            "content_kind": "table",
+                            "source_xml": source_xml,
+                        },
+                    )
+                )
+                emitted += 1
+                continue
+            preserve_textbox_critical(child, child_path)
+
     def append_textbox(content: ET.Element, element_path: str) -> None:
         nonlocal emitted
         text = "".join(node.text or "" for node in content.iter(f"{W}t"))
@@ -494,9 +578,9 @@ def _append_drawing(
             )
         )
         emitted += 1
+        preserve_textbox_critical(content, element_path)
 
     def walk(element: ET.Element, element_path: str) -> None:
-        nonlocal emitted
         for child_index, child in enumerate(element):
             child_path = f"{element_path}/*[{child_index + 1}]"
             if child.tag == f"{W}txbxContent":
@@ -507,38 +591,12 @@ def _append_drawing(
                 continue
             before = emitted
             walk(child, child_path)
-            if child.tag == f"{A}graphicData" and emitted == before:
-                raw_text = "".join(
-                    node.text or "" for node in child.iter(f"{W}t")
-                )
-                blocks.append(
-                    _block(
-                        blocks,
-                        "unresolved",
-                        raw_text,
-                        child_path,
-                        metadata={
-                            "reason": "unsupported_drawing_content",
-                            "xml_tag": child.tag,
-                        },
-                    )
-                )
-                emitted += 1
+            if element.tag == f"{A}graphicData" and emitted == before:
+                append_drawing_unresolved(child, child_path)
 
     walk(drawing, source_path)
     if emitted == 0 and len(drawing):
-        blocks.append(
-            _block(
-                blocks,
-                "unresolved",
-                "".join(node.text or "" for node in drawing.iter(f"{W}t")),
-                source_path,
-                metadata={
-                    "reason": "unsupported_drawing_content",
-                    "xml_tag": drawing.tag,
-                },
-            )
-        )
+        append_drawing_unresolved(drawing, source_path)
 
 
 def _append_orphan_embedding_blocks(
