@@ -14,7 +14,12 @@ from question_builder.understanding.classifier import (
 )
 
 
-def _document(source_file: str, texts: list[str], *, block_types: list[str] | None = None) -> DocumentIR:
+def _document(
+    source_file: str,
+    texts: list[str],
+    *,
+    block_types: list[str] | None = None,
+) -> DocumentIR:
     types = block_types or ["paragraph"] * len(texts)
     return DocumentIR(
         document_id=f"doc_{abs(hash(source_file))}",
