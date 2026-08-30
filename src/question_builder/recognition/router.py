@@ -5,7 +5,7 @@ import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TypeVar, cast
+from typing import cast
 
 from question_builder.config.models import QualityThresholds
 from question_builder.recognition.calibration import (
@@ -26,7 +26,6 @@ from question_builder.recognition.contracts import (
     VisionProvider,
 )
 
-T = TypeVar("T")
 Provider = (
     TextOCRProvider
     | FormulaOCRProvider
@@ -110,7 +109,7 @@ def is_retryable_error(error: BaseException) -> bool:
     return False
 
 
-async def call_with_retry(
+async def call_with_retry[T](
     operation: Callable[[], Awaitable[T]],
     policy: RetryPolicy,
     *,
