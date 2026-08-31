@@ -177,3 +177,112 @@ def test_llm_fallback_fuses_classification_without_overwriting_source_evidence()
     assert fused.rule_classification is DocumentClass.UNKNOWN
     assert fused.llm_evidence == llm_evidence
     assert fused.source_evidence == rule_only.source_evidence
+
+
+def _numbered_document(source_file: str, rows: list[tuple[str, str]]) -> DocumentIR:
+    return DocumentIR(
+        document_id=f"doc_numbered_{abs(hash(source_file))}",
+        source_file=source_file,
+        source_sha256="b" * 64,
+        blocks=tuple(
+            ContentBlock(
+                block_id=f"n{index}",
+                order=index,
+                type="paragraph",
+                raw_text=text,
+                normalized_text=text,
+                numbering={"resolved_label": label},
+            )
+            for index, (label, text) in enumerate(rows, start=1)
+        ),
+    )
+
+
+def test_structured_word_numbering_is_preferred_question_evidence() -> None:
+    document = _numbered_document("普通试题.docx", [("1.", "下列说法正确的是")])
+
+    understanding = classify_document(document)
+
+    assert understanding.features.question_number_sequence == ("1",)
+    assert understanding.document_class is DocumentClass.QUESTION
+    assert understanding.features.question_evidence_blocks == ("n1",)
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        ("（1）", "1"),
+        ("①", "1"),
+        ("A.", "A"),
+        ("一、", "一"),
+        ("1.1.", "1.1"),
+    ],
+)
+def test_structured_word_numbering_styles_are_sequence_evidence(
+    label: str,
+    expected: str,
+) -> None:
+    document = _numbered_document("编号样式.docx", [(label, "这是一道题目")])
+
+    features = extract_document_features(document)
+
+    assert features.question_number_sequence == (expected,)
+    assert features.question_evidence_blocks == ("n1",)
+
+
+def test_continuous_word_auto_numbering_drives_question_classification_and_sequence() -> None:
+    document = _numbered_document(
+        "连续自动编号.docx",
+        [
+            ("1.", "第一道题"),
+            ("2.", "第二道题"),
+            ("3.", "第三道题"),
+        ],
+    )
+
+    understanding = classify_document(document)
+
+    assert understanding.features.question_number_sequence == ("1", "2", "3")
+    assert understanding.document_class is DocumentClass.QUESTION
+
+
+def test_single_weak_answer_like_line_does_not_force_answer_classification() -> None:
+    document = _document("普通资料.docx", ["课堂材料", "1. A"])
+
+    understanding = classify_document(document)
+
+    assert understanding.rule_classification is DocumentClass.UNKNOWN
+    assert understanding.document_class is DocumentClass.UNKNOWN
+
+
+def test_answer_heading_and_continuous_answer_sequence_is_strong_answer_structure() -> None:
+    document = _document("普通文件.docx", ["参考答案", "1. A", "2. C", "3. B"])
+
+    understanding = classify_document(document)
+
+    assert understanding.features.answer_number_sequence == ("1", "2", "3")
+    assert understanding.document_class is DocumentClass.ANSWER
+
+
+def test_title_subject_has_priority_over_incidental_body_keyword() -> None:
+    document = _document(
+        "考试资料.docx",
+        ["2025年七年级历史期中考试", "古代数学的发展影响了社会生活"],
+    )
+
+    features = extract_document_features(document)
+
+    assert features.subject == "历史"
+    assert "b1" in features.metadata_source_blocks
+
+
+def test_title_grade_has_priority_over_incidental_body_grade_keyword() -> None:
+    document = _document(
+        "考试资料.docx",
+        ["2025年七年级历史期中考试", "一年级学生也可以阅读这段材料"],
+    )
+
+    features = extract_document_features(document)
+
+    assert features.grade == "七年级"
+    assert "b1" in features.metadata_source_blocks

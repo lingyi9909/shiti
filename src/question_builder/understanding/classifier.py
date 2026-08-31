@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -86,7 +87,14 @@ _GRADES = (
     "高三",
 )
 _EXAM_TYPES = ("期中", "期末", "中考", "高考", "月考", "模拟", "联考")
-_NUMBERED_LINE = re.compile(r"^\s*(\d{1,4})\s*[.、．)）]\s*(.+?)\s*$")
+_RAW_NUMBERED_LINE = re.compile(
+    r"^\s*(?P<label>"
+    r"(?:[（(]\s*\d{1,4}\s*[）)]|[①-⑳]|"
+    r"\d{1,4}(?:[.．]\d{1,4})+[.．、)）]?|"
+    r"\d{1,4}[.、．)）]|"
+    r"[一二三四五六七八九十百]+[、.．])"
+    r")\s*(?P<payload>.+?)\s*$"
+)
 _OPTION_STRUCTURE = re.compile(r"(?:^|\s)A[.、．)]\s*.+?(?:\s+)B[.、．)]\s*", re.IGNORECASE)
 _SIMPLE_ANSWER = re.compile(
     r"^(?:[A-H](?:\s*[,，/]\s*[A-H])*|[-+]?\d+(?:\.\d+)?|[√×对错]|[TF])$",
@@ -94,6 +102,11 @@ _SIMPLE_ANSWER = re.compile(
 )
 _CITY = re.compile(r"([\u4e00-\u9fff]{2,8}市)")
 _YEAR = re.compile(r"(?<!\d)(20\d{2})(?!\d)")
+_MUNICIPALITIES = ("北京", "上海", "天津", "重庆")
+_CIRCLED_NUMBER_START = ord("①")
+_CIRCLED_NUMBER_END = ord("⑳")
+
+type _MetadataSource = tuple[str, str | None]
 
 
 def _text(block: ContentBlock) -> str:
@@ -112,31 +125,76 @@ def _is_answer_heading(text: str) -> bool:
     }
 
 
-def _simple_answer_number(text: str) -> str | None:
-    match = _NUMBERED_LINE.match(text)
-    if match is None:
+def _normalize_number_label(label: str) -> str | None:
+    normalized = re.sub(r"\s+", "", label).replace("．", ".")
+    if not normalized:
         return None
-    number, payload = match.groups()
-    if _SIMPLE_ANSWER.fullmatch(payload.strip()) is None:
-        return None
-    return number
+
+    if len(normalized) == 1:
+        codepoint = ord(normalized)
+        if _CIRCLED_NUMBER_START <= codepoint <= _CIRCLED_NUMBER_END:
+            return str(codepoint - _CIRCLED_NUMBER_START + 1)
+
+    if normalized[0] in "(（" and normalized[-1] in ")）":
+        normalized = normalized[1:-1]
+
+    normalized = normalized.rstrip(".、)）")
+    if re.fullmatch(r"\d{1,4}(?:\.\d{1,4})*", normalized):
+        return normalized
+    if re.fullmatch(r"[A-Za-z]", normalized):
+        return normalized.upper()
+    if re.fullmatch(r"[一二三四五六七八九十百]+", normalized):
+        return normalized
+    return None
 
 
-def _question_number(text: str) -> str | None:
-    match = _NUMBERED_LINE.match(text)
+def _structured_number(block: ContentBlock) -> str | None:
+    if block.numbering is None:
+        return None
+    resolved_label = block.numbering.get("resolved_label")
+    if not isinstance(resolved_label, str):
+        return None
+    return _normalize_number_label(resolved_label)
+
+
+def _raw_numbered_payload(text: str) -> tuple[str, str] | None:
+    match = _RAW_NUMBERED_LINE.match(text)
     if match is None:
         return None
-    number, payload = match.groups()
-    if _SIMPLE_ANSWER.fullmatch(payload.strip()) is not None:
+    number = _normalize_number_label(match.group("label"))
+    if number is None:
         return None
-    return number
+    return number, match.group("payload").strip()
+
+
+def _numbered_payload(block: ContentBlock, text: str) -> tuple[str, str] | None:
+    structured_number = _structured_number(block)
+    if structured_number is not None:
+        return structured_number, text
+    return _raw_numbered_payload(text)
 
 
 def _first_keyword(haystack: str, candidates: tuple[str, ...]) -> str | None:
-    for candidate in candidates:
-        if candidate in haystack:
-            return candidate
-    return None
+    matches = (
+        (index, -len(candidate), candidate)
+        for candidate in candidates
+        if (index := haystack.find(candidate)) >= 0
+    )
+    first = min(matches, default=None)
+    return first[2] if first is not None else None
+
+
+def _year_from_text(text: str) -> str | None:
+    match = _YEAR.search(text)
+    return match.group(1) if match is not None else None
+
+
+def _city_from_text(text: str) -> str | None:
+    for municipality in _MUNICIPALITIES:
+        if f"{municipality}市" in text or municipality in text:
+            return f"{municipality}市"
+    match = _CITY.search(text)
+    return match.group(1) if match is not None else None
 
 
 def _first_title(blocks: tuple[ContentBlock, ...]) -> tuple[str | None, tuple[str, ...]]:
@@ -148,19 +206,111 @@ def _first_title(blocks: tuple[ContentBlock, ...]) -> tuple[str | None, tuple[st
     return None, ()
 
 
+def _first_explicit_title(blocks: tuple[ContentBlock, ...]) -> tuple[str | None, str | None]:
+    for preferred_type in ("paragraph", "textbox"):
+        for block in blocks:
+            text = _text(block)
+            if block.type == preferred_type and text:
+                return text, block.block_id
+    return None, None
+
+
+def _metadata_sources(
+    document: DocumentIR,
+) -> tuple[tuple[_MetadataSource, ...], tuple[_MetadataSource, ...], tuple[str, ...]]:
+    source_stem = Path(document.source_file).stem
+    explicit_title, explicit_title_block = _first_explicit_title(document.blocks)
+
+    strong_sources: list[_MetadataSource] = [(source_stem, None)]
+    strong_block_ids: list[str] = []
+    if explicit_title is not None:
+        strong_sources.append((explicit_title, explicit_title_block))
+        if explicit_title_block is not None:
+            strong_block_ids.append(explicit_title_block)
+
+    for block in document.blocks:
+        text = _text(block)
+        if block.type == "header" and text:
+            strong_sources.append((text, block.block_id))
+            strong_block_ids.append(block.block_id)
+
+    strong_id_set = set(strong_block_ids)
+    weak_sources = tuple(
+        (text, block.block_id)
+        for block in document.blocks
+        if block.block_id not in strong_id_set and (text := _text(block))
+    )
+    return tuple(strong_sources), weak_sources, tuple(dict.fromkeys(strong_block_ids))
+
+
+def _metadata_value(
+    strong_sources: tuple[_MetadataSource, ...],
+    weak_sources: tuple[_MetadataSource, ...],
+    extractor: Callable[[str], str | None],
+) -> tuple[str | None, str | None]:
+    for text, block_id in strong_sources:
+        value = extractor(text)
+        if value is not None:
+            return value, block_id
+    for text, block_id in weak_sources:
+        value = extractor(text)
+        if value is not None:
+            return value, block_id
+    return None, None
+
+
+def _is_consecutive_numeric_sequence(sequence: tuple[str, ...]) -> bool:
+    if len(sequence) < 2 or any(re.fullmatch(r"\d+", item) is None for item in sequence):
+        return False
+    values = [int(item) for item in sequence]
+    return all(
+        current == previous + 1
+        for previous, current in zip(values, values[1:], strict=False)
+    )
+
+
+def _has_high_answer_density(document: DocumentIR, features: DocumentFeatures) -> bool:
+    answer_block_ids = set(features.answer_evidence_blocks) - set(features.answer_heading_blocks)
+    if len(answer_block_ids) < 3:
+        return False
+    content_block_count = sum(
+        1 for block in document.blocks if (text := _text(block)) and not _is_answer_heading(text)
+    )
+    return content_block_count > 0 and len(answer_block_ids) / content_block_count >= 0.5
+
+
 def extract_document_features(document: DocumentIR) -> DocumentFeatures:
     blocks = document.blocks
     title, title_blocks = _first_title(blocks)
-    source_stem = Path(document.source_file).stem
-    searchable = "\n".join([source_stem, *(text for block in blocks if (text := _text(block)))])
+    strong_sources, weak_sources, strong_metadata_blocks = _metadata_sources(document)
 
-    subject = _first_keyword(searchable, _SUBJECTS)
-    grade = _first_keyword(searchable, _GRADES)
-    year_match = _YEAR.search(searchable)
-    year = year_match.group(1) if year_match is not None else None
-    city_match = _CITY.search(searchable)
-    city = city_match.group(1) if city_match is not None else None
-    exam_type = _first_keyword(searchable, _EXAM_TYPES)
+    selected_metadata_blocks: list[str] = []
+
+    subject, source_block = _metadata_value(
+        strong_sources, weak_sources, lambda text: _first_keyword(text, _SUBJECTS)
+    )
+    if source_block is not None:
+        selected_metadata_blocks.append(source_block)
+
+    grade, source_block = _metadata_value(
+        strong_sources, weak_sources, lambda text: _first_keyword(text, _GRADES)
+    )
+    if source_block is not None:
+        selected_metadata_blocks.append(source_block)
+
+    year, source_block = _metadata_value(strong_sources, weak_sources, _year_from_text)
+    if source_block is not None:
+        selected_metadata_blocks.append(source_block)
+
+    city, source_block = _metadata_value(strong_sources, weak_sources, _city_from_text)
+    if source_block is not None:
+        selected_metadata_blocks.append(source_block)
+
+    exam_type, source_block = _metadata_value(
+        strong_sources, weak_sources, lambda text: _first_keyword(text, _EXAM_TYPES)
+    )
+    if source_block is not None:
+        selected_metadata_blocks.append(source_block)
 
     question_numbers: list[str] = []
     answer_numbers: list[str] = []
@@ -180,20 +330,18 @@ def extract_document_features(document: DocumentIR) -> DocumentFeatures:
             answer_blocks.append(block.block_id)
             continue
 
-        simple_answer = _simple_answer_number(text)
-        numbered_question = _question_number(text)
-
-        if in_answer_section:
-            match = _NUMBERED_LINE.match(text)
-            if match is not None:
-                answer_numbers.append(match.group(1))
+        numbered = _numbered_payload(block, text)
+        if numbered is not None:
+            number, payload = numbered
+            if in_answer_section:
+                answer_numbers.append(number)
                 answer_blocks.append(block.block_id)
-        elif simple_answer is not None:
-            answer_numbers.append(simple_answer)
-            answer_blocks.append(block.block_id)
-        elif numbered_question is not None:
-            question_numbers.append(numbered_question)
-            question_blocks.append(block.block_id)
+            elif _SIMPLE_ANSWER.fullmatch(payload.strip()) is not None:
+                answer_numbers.append(number)
+                answer_blocks.append(block.block_id)
+            else:
+                question_numbers.append(number)
+                question_blocks.append(block.block_id)
 
         if _OPTION_STRUCTURE.search(text) is not None:
             option_blocks.append(block.block_id)
@@ -204,11 +352,13 @@ def extract_document_features(document: DocumentIR) -> DocumentFeatures:
         dict.fromkeys(
             [
                 *title_blocks,
+                *strong_metadata_blocks,
                 *(
                     block.block_id
                     for block in blocks
-                    if block.type in {"header", "footer"} and _text(block)
+                    if block.type == "footer" and _text(block)
                 ),
+                *selected_metadata_blocks,
             ]
         )
     )
@@ -234,19 +384,25 @@ def _rule_classification(document: DocumentIR, features: DocumentFeatures) -> Do
     filename = Path(document.source_file).stem
     has_answer_name = "答案" in filename or "解析" in filename
     has_question = bool(features.question_number_sequence or features.option_structure_blocks)
-    has_answer = bool(features.answer_number_sequence or features.answer_heading_blocks)
+    has_answer_evidence = bool(features.answer_number_sequence or features.answer_heading_blocks)
     has_explicit_answer_section = bool(features.answer_heading_blocks)
+    has_strong_answer = (
+        has_explicit_answer_section
+        or has_answer_name
+        or _is_consecutive_numeric_sequence(features.answer_number_sequence)
+        or _has_high_answer_density(document, features)
+    )
 
-    if has_question and has_answer:
+    if has_question and has_answer_evidence:
         if has_explicit_answer_section:
             return DocumentClass.QUESTION_AND_ANSWER
         return DocumentClass.MIXED
-    if has_answer and (has_answer_name or has_explicit_answer_section):
-        return DocumentClass.ANSWER
     if has_question:
         return DocumentClass.QUESTION
-    if has_answer:
+    if has_answer_evidence and has_strong_answer:
         return DocumentClass.ANSWER
+    if has_answer_evidence:
+        return DocumentClass.UNKNOWN
     return DocumentClass.UNKNOWN
 
 

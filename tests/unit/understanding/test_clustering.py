@@ -129,3 +129,43 @@ def test_number_sequence_conflict_prevents_tempting_filename_merge() -> None:
 
     assert len(clusters) == 2
     assert all(len(cluster.document_ids) == 1 for cluster in clusters)
+
+
+def test_explicit_city_conflict_prevents_merge() -> None:
+    question = classify_document(
+        _document(
+            "2025北京市七年级数学期中试卷.docx",
+            ["2025北京市七年级数学期中考试", "1. 第一题", "A. 1 B. 2 C. 3 D. 4"],
+        )
+    )
+    answer = classify_document(
+        _document(
+            "2025上海市七年级数学期中答案.docx",
+            ["2025上海市七年级数学期中考试参考答案", "参考答案", "1. A"],
+        )
+    )
+
+    clusters = build_exam_clusters((question, answer))
+
+    assert len(clusters) == 2
+    assert all(len(cluster.document_ids) == 1 for cluster in clusters)
+
+
+def test_explicit_exam_type_conflict_prevents_merge() -> None:
+    question = classify_document(
+        _document(
+            "2025北京市七年级数学期中试卷.docx",
+            ["2025北京市七年级数学期中考试", "1. 第一题", "A. 1 B. 2 C. 3 D. 4"],
+        )
+    )
+    answer = classify_document(
+        _document(
+            "2025北京市七年级数学期末答案.docx",
+            ["2025北京市七年级数学期末考试参考答案", "参考答案", "1. A"],
+        )
+    )
+
+    clusters = build_exam_clusters((question, answer))
+
+    assert len(clusters) == 2
+    assert all(len(cluster.document_ids) == 1 for cluster in clusters)
