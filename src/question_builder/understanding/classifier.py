@@ -263,7 +263,10 @@ def _is_consecutive_numeric_sequence(sequence: tuple[str, ...]) -> bool:
     if len(sequence) < 2 or any(re.fullmatch(r"\d+", item) is None for item in sequence):
         return False
     values = [int(item) for item in sequence]
-    return all(current == previous + 1 for previous, current in zip(values, values[1:]))
+    return all(
+        current == previous + 1
+        for previous, current in zip(values, values[1:], strict=False)
+    )
 
 
 def _has_high_answer_density(document: DocumentIR, features: DocumentFeatures) -> bool:
