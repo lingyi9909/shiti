@@ -38,7 +38,7 @@ def _normalized_family(value: str | None) -> str:
 
 
 def _hard_conflict(left: DocumentUnderstanding, right: DocumentUnderstanding) -> bool:
-    for attribute in ("subject", "year", "grade"):
+    for attribute in ("subject", "year", "grade", "city", "exam_type"):
         left_value = getattr(left.features, attribute)
         right_value = getattr(right.features, attribute)
         if left_value and right_value and left_value != right_value:
