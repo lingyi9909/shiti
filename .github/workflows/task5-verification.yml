@@ -1,0 +1,21 @@
+name: Task 5 Verification
+
+on:
+  push:
+    branches: [task5-verification]
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact Task 5 head
+        uses: actions/checkout@v4
+        with:
+          ref: 730d2f6ac0afadea05a71b9e54372a23abe10723
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Task 5 tests
+        run: python -m pytest tests/unit/splitter -v
