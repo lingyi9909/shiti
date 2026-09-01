@@ -24,7 +24,10 @@ def _fail(message: str) -> QuestionContentError:
     return QuestionContentError(RejectReason.QUESTION_CONTENT_INCOMPLETE, message)
 
 
-def _validate_selection(document: DocumentIR, content_blocks: tuple[str, ...]) -> tuple[ContentBlock, ...]:
+def _validate_selection(
+    document: DocumentIR,
+    content_blocks: tuple[str, ...],
+) -> tuple[ContentBlock, ...]:
     if not content_blocks:
         raise _fail("question reconstruction requires at least one source block")
 
@@ -40,7 +43,10 @@ def _validate_selection(document: DocumentIR, content_blocks: tuple[str, ...]) -
         selected.append(block)
         selected_positions.append(positions[block_id])
 
-    if selected_positions != sorted(selected_positions) or len(selected_positions) != len(set(selected_positions)):
+    if (
+        selected_positions != sorted(selected_positions)
+        or len(selected_positions) != len(set(selected_positions))
+    ):
         raise _fail("source blocks must be unique and preserve source order")
 
     selected_ids = set(content_blocks)
