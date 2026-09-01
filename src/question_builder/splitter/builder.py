@@ -191,7 +191,10 @@ def _option_structure_consistent(document: DocumentIR, content_blocks: tuple[str
     blocks_by_id = {block.block_id: block for block in document.blocks}
     labels: list[str] = []
     for block_id in content_blocks:
-        labels.extend(label.upper() for label in _OPTION_LABEL.findall(_text(blocks_by_id[block_id])))
+        labels.extend(
+            label.upper()
+            for label in _OPTION_LABEL.findall(_text(blocks_by_id[block_id]))
+        )
 
     if not labels:
         return True
