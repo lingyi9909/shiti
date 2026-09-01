@@ -223,16 +223,17 @@ def _metadata_sources(
 
     strong_sources: list[_MetadataSource] = [(source_stem, None)]
     strong_block_ids: list[str] = []
-    if explicit_title is not None:
-        strong_sources.append((explicit_title, explicit_title_block))
-        if explicit_title_block is not None:
-            strong_block_ids.append(explicit_title_block)
 
     for block in document.blocks:
         text = _text(block)
         if block.type == "header" and text:
             strong_sources.append((text, block.block_id))
             strong_block_ids.append(block.block_id)
+
+    if explicit_title is not None:
+        strong_sources.append((explicit_title, explicit_title_block))
+        if explicit_title_block is not None:
+            strong_block_ids.append(explicit_title_block)
 
     strong_id_set = set(strong_block_ids)
     weak_sources = tuple(
