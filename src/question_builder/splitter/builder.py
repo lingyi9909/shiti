@@ -4,7 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 
-from question_builder.domain.document import ContentBlock, DocumentIR
+from question_builder.domain.document import DocumentIR
 from question_builder.domain.quality import RejectReason
 from question_builder.domain.question import QuestionCandidate
 from question_builder.splitter.rules import (
