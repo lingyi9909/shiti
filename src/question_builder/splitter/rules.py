@@ -48,6 +48,18 @@ def _is_section_heading(text: str) -> bool:
     return _SECTION_HEADING.fullmatch(text) is not None
 
 
+def is_answer_heading_block(block: ContentBlock) -> bool:
+    return _is_answer_heading(_text(block))
+
+
+def is_section_heading_block(block: ContentBlock) -> bool:
+    return _is_section_heading(_text(block))
+
+
+def is_deterministically_excluded_question_block(block: ContentBlock) -> bool:
+    return block.type in {"header", "footer", "noise_candidate"} or is_section_heading_block(block)
+
+
 def _normalize_label(label: str) -> str | None:
     normalized = re.sub(r"\s+", "", label).replace("．", ".")
     if not normalized:
@@ -157,8 +169,7 @@ def generate_rule_ranges(document: DocumentIR) -> tuple[RuleRange, ...]:
         selected = tuple(
             block.block_id
             for block in blocks[start:end]
-            if block.type not in {"header", "footer", "noise_candidate"}
-            and not _is_section_heading(_text(block))
+            if not is_deterministically_excluded_question_block(block)
             and not _is_answer_heading(_text(block))
         )
         if not selected:
