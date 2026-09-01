@@ -78,6 +78,8 @@ def _validate_llm_range_boundary(
     for block in document.blocks[block_positions[0] : block_positions[-1] + 1]:
         if block.block_id in selected:
             continue
+        if block.type in _CRITICAL_TYPES:
+            continue
         if is_deterministically_excluded_question_block(block):
             continue
         raise QuestionSplitContractError(
