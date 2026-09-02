@@ -55,7 +55,7 @@ _COMPACT_SIMPLE_ANSWER = re.compile(
     re.IGNORECASE,
 )
 _COMPACT_NUMBER_MARKER = re.compile(
-    r"(?P<prefix>^|\s+)(?P<number>\d{1,4})\s*[.、．)）]\s*"
+    r"(?P<prefix>^|\s+)(?P<number>\d{1,4})\s*(?:[.．](?=\s)|[、)）])\s*"
 )
 _EXPLICIT_QUESTION_NUMBER = re.compile(
     r"^\s*第\s*(?P<number>\d{1,4}|[一二三四五六七八九十百]+)\s*题"
@@ -546,6 +546,29 @@ def _llm_candidates(
     return candidates
 
 
+def _validate_explicit_answer_critical_assignments(
+    document: DocumentIR,
+    candidates: list[AnswerCandidate],
+) -> None:
+    answer_region, explicit_section = _answer_region(document)
+    if not explicit_section:
+        return
+
+    assignments: dict[str, int] = {}
+    for candidate in candidates:
+        for block_id in candidate.source_blocks:
+            assignments[block_id] = assignments.get(block_id, 0) + 1
+
+    for block in answer_region:
+        if block.type in _EXCLUDED_TYPES or block.type not in _CRITICAL_ANSWER_TYPES:
+            continue
+        if assignments.get(block.block_id, 0) != 1:
+            raise AnswerExtractionError(
+                RejectReason.ANSWER_NOT_FOUND,
+                f"critical answer source is not assigned exactly once: {block.block_id}",
+            )
+
+
 def extract_answer_candidates(
     document: DocumentIR,
     *,
@@ -553,11 +576,13 @@ def extract_answer_candidates(
 ) -> list[AnswerCandidate]:
     deterministic = _deterministic_candidates(document)
     if deterministic:
+        _validate_explicit_answer_critical_assignments(document, deterministic)
         return deterministic
 
     if llm_selection is not None:
         llm_candidates = _llm_candidates(document, llm_selection)
         if llm_candidates:
+            _validate_explicit_answer_critical_assignments(document, llm_candidates)
             return llm_candidates
 
     raise AnswerExtractionError(
