@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from question_builder.domain.answer import AnswerCandidate
 from question_builder.domain.document import ContentBlock, DocumentIR
 from question_builder.domain.quality import RejectReason
+from question_builder.export.markdown import QuestionContentError, render_question_markdown
 
 
 class AnswerExtractContractError(ValueError):
@@ -44,6 +45,7 @@ _ANSWER_HEADINGS = {
     "解析",
 }
 _EXCLUDED_TYPES = {"header", "footer", "noise_candidate"}
+_CRITICAL_ANSWER_TYPES = {"formula", "image", "table", "unresolved"}
 _RAW_NUMBERED = re.compile(
     r"^\s*(?P<number>\d{1,4}|[一二三四五六七八九十百]+)\s*[.、．)）]\s*(?P<body>.+?)\s*$"
 )
@@ -51,6 +53,12 @@ _COMPACT_SIMPLE_ANSWER = re.compile(
     r"(?<!\S)(?P<number>\d{1,4})\s*[.、．)）]\s*"
     r"(?P<answer>[A-D]|正确|错误|对|错|√|×)(?=\s|$)",
     re.IGNORECASE,
+)
+_COMPACT_NUMBER_MARKER = re.compile(
+    r"(?P<prefix>^|\s{2,})(?P<number>\d{1,4})\s*[.、．)）]\s*"
+)
+_EXPLICIT_QUESTION_NUMBER = re.compile(
+    r"^\s*第\s*(?P<number>\d{1,4}|[一二三四五六七八九十百]+)\s*题"
 )
 _ANALYSIS_MARKER = re.compile(r"\s*(?:解析|分析)\s*[：:]\s*")
 _ANSWER_PREFIX = re.compile(r"^\s*(?:答案|答)\s*[：:]\s*")
@@ -238,6 +246,30 @@ def _compact_answer_candidates(
     ]
 
 
+def _compact_numbered_bodies(block: ContentBlock) -> list[tuple[str, str]] | None:
+    text = _text(block)
+    matches = list(_COMPACT_NUMBER_MARKER.finditer(text))
+    if len(matches) < 2:
+        return None
+    if text[: matches[0].start()].strip():
+        raise AnswerExtractionError(
+            RejectReason.ANSWER_NOT_FOUND,
+            "compact answer source cannot be completely parsed",
+        )
+
+    entries: list[tuple[str, str]] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        body = text[match.end() : end].strip()
+        if not body:
+            raise AnswerExtractionError(
+                RejectReason.ANSWER_NOT_FOUND,
+                "compact answer source contains an empty numbered answer",
+            )
+        entries.append((match.group("number"), body))
+    return entries
+
+
 def _split_answer_and_analysis(body: str) -> tuple[str, str] | None:
     marker = _ANALYSIS_MARKER.search(body)
     if marker is None:
@@ -281,24 +313,48 @@ def _solution_answer(body: str) -> tuple[str, str] | None:
     return answer, "\n".join(analysis_parts) or "略"
 
 
+def _render_answer_block(document: DocumentIR, block: ContentBlock) -> str | None:
+    if block.type in _CRITICAL_ANSWER_TYPES:
+        try:
+            return render_question_markdown(document, (block.block_id,))
+        except QuestionContentError as exc:
+            raise AnswerExtractionError(
+                RejectReason.ANSWER_NOT_FOUND,
+                f"critical answer source cannot be reconstructed: {block.block_id}",
+            ) from exc
+    return _text(block) or None
+
+
 def _numbered_entries(
+    document: DocumentIR,
     blocks: tuple[ContentBlock, ...],
 ) -> list[tuple[str, tuple[str, ...], str]]:
     entries: list[tuple[str, list[str], list[str]]] = []
     for block in blocks:
         if block.type in _EXCLUDED_TYPES:
             continue
+
+        compact = _compact_numbered_bodies(block)
+        if compact is not None:
+            for compact_number, compact_body in compact:
+                entries.append((compact_number, [block.block_id], [compact_body]))
+            continue
+
         numbered = _numbered_body(block)
         if numbered is not None:
-            number, body = numbered
-            if number is not None:
-                entries.append((number, [block.block_id], [body]))
+            numbered_number, numbered_body = numbered
+            if numbered_number is not None:
+                entries.append((numbered_number, [block.block_id], [numbered_body]))
             continue
-        if entries and _text(block):
-            entries[-1][1].append(block.block_id)
-            entries[-1][2].append(_text(block))
+
+        if entries:
+            rendered = _render_answer_block(document, block)
+            if rendered:
+                entries[-1][1].append(block.block_id)
+                entries[-1][2].append(rendered)
+
     return [
-        (number, tuple(block_ids), "\n".join(parts).strip())
+        (number, tuple(block_ids), "\n\n".join(parts).strip())
         for number, block_ids, parts in entries
     ]
 
@@ -307,14 +363,8 @@ def _deterministic_candidates(document: DocumentIR) -> list[AnswerCandidate]:
     region, explicit_section = _answer_region(document)
     blocks = tuple(block for block in region if block.type not in _EXCLUDED_TYPES)
 
-    compact_candidates: list[AnswerCandidate] = []
-    for block in blocks:
-        compact_candidates.extend(_compact_answer_candidates(document, block))
-    if compact_candidates:
-        return compact_candidates
-
     candidates: list[AnswerCandidate] = []
-    for number, source_blocks, body in _numbered_entries(blocks):
+    for number, source_blocks, body in _numbered_entries(document, blocks):
         solution = _solution_answer(body)
         if solution is not None:
             answer, analysis = solution
@@ -377,11 +427,73 @@ def _normalize_evidence(value: str) -> str:
     return re.sub(r"\s+", "", normalized)
 
 
-def _llm_item_is_source_backed(
+def _structured_number_evidence(block: ContentBlock) -> str | None:
+    if block.numbering is None:
+        return None
+    raw_label = block.numbering.get("resolved_label")
+    if not isinstance(raw_label, str):
+        return None
+    return _normalize_numbering_label(raw_label)
+
+
+def _text_number_evidence(block: ContentBlock) -> str | None:
+    text = _text(block)
+    raw_numbered = _RAW_NUMBERED.match(text)
+    if raw_numbered is not None:
+        return raw_numbered.group("number")
+    explicit = _EXPLICIT_QUESTION_NUMBER.match(text)
+    if explicit is not None:
+        return explicit.group("number")
+    return None
+
+
+def _llm_question_number_is_source_backed(
     item: LLMAnswerItem,
     blocks_by_id: dict[str, ContentBlock],
 ) -> bool:
-    source = "\n".join(_text(blocks_by_id[block_id]) for block_id in item.source_blocks)
+    if item.question_number is None:
+        return True
+    expected = _normalize_numbering_label(item.question_number)
+    if expected is None:
+        return False
+
+    structured = [
+        number
+        for block_id in item.source_blocks
+        if (number := _structured_number_evidence(blocks_by_id[block_id])) is not None
+    ]
+    if structured:
+        return len(set(structured)) == 1 and structured[0] == expected
+
+    textual = [
+        number
+        for block_id in item.source_blocks
+        if (number := _text_number_evidence(blocks_by_id[block_id])) is not None
+    ]
+    return bool(textual) and len(set(textual)) == 1 and textual[0] == expected
+
+
+def _render_llm_source_evidence(
+    document: DocumentIR,
+    source_blocks: tuple[str, ...],
+) -> str:
+    try:
+        return render_question_markdown(document, source_blocks)
+    except QuestionContentError as exc:
+        raise AnswerExtractionError(
+            RejectReason.ANSWER_NOT_FOUND,
+            "LLM cited answer source cannot be reliably reconstructed",
+        ) from exc
+
+
+def _llm_item_is_source_backed(
+    item: LLMAnswerItem,
+    document: DocumentIR,
+    blocks_by_id: dict[str, ContentBlock],
+) -> bool:
+    if not _llm_question_number_is_source_backed(item, blocks_by_id):
+        return False
+    source = _render_llm_source_evidence(document, item.source_blocks)
     normalized_source = _normalize_evidence(source)
     if _normalize_evidence(item.answer) not in normalized_source:
         return False
@@ -395,9 +507,18 @@ def _llm_candidates(
     selection: LLMAnswerSelection,
 ) -> list[AnswerCandidate]:
     blocks_by_id = {block.block_id: block for block in document.blocks}
+    answer_region, explicit_section = _answer_region(document)
+    allowed_source_ids = {block.block_id for block in answer_region}
     candidates: list[AnswerCandidate] = []
     for item in selection.answers:
-        if not _llm_item_is_source_backed(item, blocks_by_id):
+        if explicit_section and any(
+            block_id not in allowed_source_ids for block_id in item.source_blocks
+        ):
+            raise AnswerExtractionError(
+                RejectReason.ANSWER_NOT_FOUND,
+                "LLM answer source is outside the explicit answer section",
+            )
+        if not _llm_item_is_source_backed(item, document, blocks_by_id):
             raise AnswerExtractionError(
                 RejectReason.ANSWER_NOT_FOUND,
                 "LLM answer is not recoverable from its cited original source blocks",
