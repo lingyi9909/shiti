@@ -258,7 +258,10 @@ def _compact_numbered_bodies(block: ContentBlock) -> list[tuple[str, str]] | Non
         )
 
     numbers = [int(match.group("number")) for match in matches]
-    if any(current != previous + 1 for previous, current in zip(numbers, numbers[1:])):
+    if any(
+        current != previous + 1
+        for previous, current in zip(numbers, numbers[1:], strict=False)
+    ):
         raise AnswerExtractionError(
             RejectReason.ANSWER_NOT_FOUND,
             "compact answer numbering is ambiguous",
