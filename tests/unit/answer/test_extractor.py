@@ -23,8 +23,20 @@ def _document(*blocks: ContentBlock) -> DocumentIR:
     )
 
 
-def _paragraph(block_id: str, order: int, text: str) -> ContentBlock:
-    return ContentBlock(block_id=block_id, order=order, type="paragraph", raw_text=text)
+def _paragraph(
+    block_id: str,
+    order: int,
+    text: str,
+    *,
+    numbering: dict[str, object] | None = None,
+) -> ContentBlock:
+    return ContentBlock(
+        block_id=block_id,
+        order=order,
+        type="paragraph",
+        raw_text=text,
+        numbering=numbering,
+    )
 
 
 def test_compact_answer_list_extracts_each_source_backed_answer() -> None:
@@ -57,6 +69,32 @@ def test_per_line_answers_preserve_question_numbers_and_source_blocks() -> None:
         ("1", "A", ("b2",)),
         ("2", "15", ("b3",)),
     ]
+
+
+def test_word_numbering_is_used_as_deterministic_answer_number_evidence() -> None:
+    document = _document(
+        _paragraph("b1", 1, "参考答案"),
+        _paragraph("b2", 2, "A", numbering={"resolved_label": "1."}),
+        _paragraph("b3", 3, "B", numbering={"resolved_label": "2."}),
+    )
+
+    answers = extract_answer_candidates(document)
+
+    assert [(item.question_number, item.answer) for item in answers] == [("1", "A"), ("2", "B")]
+
+
+def test_explicit_answer_section_prevents_question_text_from_becoming_answer() -> None:
+    document = _document(
+        _paragraph("b1", 1, "1. 下列哪项正确？"),
+        _paragraph("b2", 2, "参考答案"),
+        _paragraph("b3", 3, "1. C"),
+    )
+
+    answers = extract_answer_candidates(document)
+
+    assert len(answers) == 1
+    assert answers[0].answer == "C"
+    assert answers[0].source_blocks == ("b3",)
 
 
 def test_answer_and_analysis_are_split_only_when_explicitly_separable() -> None:
@@ -124,7 +162,11 @@ def test_missing_answer_is_rejected() -> None:
 
 def test_llm_fallback_accepts_only_cited_source_backed_spans() -> None:
     document = _document(
-        _paragraph("b1", 1, "1. 解题过程。答案：42 解析：原文中的计算过程。"),
+        _paragraph(
+            "b1",
+            1,
+            "第1题原文记录：最终作答结果记录为【42】；说明文字：原文中的计算过程。",
+        ),
     )
     selection = parse_llm_answer_extract(
         '{"answers":[{"question_number":"1","answer":"42","analysis":"原文中的计算过程。",'
