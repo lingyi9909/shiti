@@ -336,15 +336,15 @@ def _numbered_entries(
 
         compact = _compact_numbered_bodies(block)
         if compact is not None:
-            for number, body in compact:
-                entries.append((number, [block.block_id], [body]))
+            for compact_number, compact_body in compact:
+                entries.append((compact_number, [block.block_id], [compact_body]))
             continue
 
         numbered = _numbered_body(block)
         if numbered is not None:
-            number, body = numbered
-            if number is not None:
-                entries.append((number, [block.block_id], [body]))
+            numbered_number, numbered_body = numbered
+            if numbered_number is not None:
+                entries.append((numbered_number, [block.block_id], [numbered_body]))
             continue
 
         if entries:
