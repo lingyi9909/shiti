@@ -26,6 +26,9 @@ _SECTION_HEADING = re.compile(
     r"^\s*[一二三四五六七八九十百]+[、.．]\s*"
     r"(?:单项选择题|多项选择题|选择题|填空题|判断题|计算题|解答题|综合题|阅读题|作文题)\s*$"
 )
+_SHARED_MATERIAL_LEAD = re.compile(
+    r"^\s*(?:请)?阅读(?:下面|以下|下列)?(?:材料|短文|文章|文本)(?:[：:，,。.]|$)"
+)
 _RAW_ARABIC_TOP = re.compile(r"^\s*(\d{1,4})\s*[.、．)）]\s*.+$")
 _RAW_CHINESE_TOP = re.compile(r"^\s*([一二三四五六七八九十百]+)\s*[、.．]\s*.+$")
 _RAW_SUBQUESTION = re.compile(
@@ -58,6 +61,16 @@ def is_section_heading_block(block: ContentBlock) -> bool:
 
 def is_deterministically_excluded_question_block(block: ContentBlock) -> bool:
     return block.type in {"header", "footer", "noise_candidate"} or is_section_heading_block(block)
+
+
+def shared_material_start_index(document: DocumentIR, before_index: int) -> int | None:
+    for index in range(before_index - 1, -1, -1):
+        block = document.blocks[index]
+        if is_deterministically_excluded_question_block(block):
+            continue
+        if _SHARED_MATERIAL_LEAD.match(_text(block)) is not None:
+            return index
+    return None
 
 
 def _normalize_label(label: str) -> str | None:
@@ -159,8 +172,10 @@ def generate_rule_ranges(document: DocumentIR) -> tuple[RuleRange, ...]:
     if not top_level_starts:
         return ()
 
+    shared_start = shared_material_start_index(document, top_level_starts[0][0])
     ranges: list[RuleRange] = []
     for position, (start, number, source) in enumerate(top_level_starts):
+        range_start = shared_start if position == 0 and shared_start is not None else start
         end = (
             top_level_starts[position + 1][0]
             if position + 1 < len(top_level_starts)
@@ -168,13 +183,15 @@ def generate_rule_ranges(document: DocumentIR) -> tuple[RuleRange, ...]:
         )
         selected = tuple(
             block.block_id
-            for block in blocks[start:end]
+            for block in blocks[range_start:end]
             if not is_deterministically_excluded_question_block(block)
             and not _is_answer_heading(_text(block))
         )
         if not selected:
             continue
         evidence = ["strong_top_level_number", source]
+        if range_start != start:
+            evidence.append("shared_material_prefix")
         if any(_OPTION_LINE.search(_text(block)) is not None for block in blocks[start:end]):
             evidence.append("option_structure")
         ranges.append(
