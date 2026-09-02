@@ -1,4 +1,4 @@
-name: Task 6 Final Two Blockers RED
+name: Task 6 Final Two Blockers GREEN
 
 on:
   push:
@@ -9,14 +9,14 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout exact RED head
+      - name: Checkout exact GREEN head
         uses: actions/checkout@v4
         with:
-          ref: c71f233130652e59434c8644eca759dcd7257c23
+          ref: 50323947d059c495e19e241cb1b35386f76ec967
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install
         run: python -m pip install -e '.[dev]'
-      - name: Run final blocker regressions
-        run: python -m pytest tests/unit/answer/test_final_two_blocker_regressions.py -v
+      - name: Task 6 answer tests
+        run: python -m pytest tests/unit/answer -v
