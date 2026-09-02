@@ -1,0 +1,22 @@
+name: Task 6 Blockers GREEN
+
+on:
+  push:
+    branches:
+      - task6-blockers-green-verification
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact GREEN head
+        uses: actions/checkout@v4
+        with:
+          ref: df7ed4ef028bb8b10f8381e9387f2a7f59805344
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Task 6 answer tests
+        run: python -m pytest tests/unit/answer -v
