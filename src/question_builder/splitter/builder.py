@@ -14,6 +14,7 @@ from question_builder.splitter.rules import (
     is_answer_heading_block,
     is_deterministically_excluded_question_block,
     question_number_for_block,
+    shared_material_start_index,
 )
 
 
@@ -227,16 +228,46 @@ def _candidate_assignments(
     return assignments
 
 
+def _rule_ranges_cover_leading_source(
+    document: DocumentIR,
+    ranges: tuple[RuleRange, ...],
+) -> bool:
+    positions = _positions(document)
+    first = min(positions[split_range.content_blocks[0]] for split_range in ranges)
+    for block in document.blocks[:first]:
+        if is_deterministically_excluded_question_block(block):
+            continue
+        return False
+    return True
+
+
+def _has_ambiguous_leading_body_content(
+    document: DocumentIR,
+    ranges: tuple[RuleRange, ...],
+) -> bool:
+    positions = _positions(document)
+    first = min(positions[split_range.content_blocks[0]] for split_range in ranges)
+    for block in document.blocks[:first]:
+        if is_deterministically_excluded_question_block(block):
+            continue
+        if block.type in _CRITICAL_TYPES:
+            continue
+        return True
+    return False
+
+
 def _candidate_set_covers_internal_question_region(
     document: DocumentIR,
     ranges: tuple[LLMSplitRange | RuleRange, ...],
 ) -> bool:
     positions = _positions(document)
     first = min(positions[split_range.content_blocks[0]] for split_range in ranges)
-    last = max(positions[split_range.content_blocks[-1]] for split_range in ranges)
+    answer_start = _answer_start_index(document)
+    shared_start = shared_material_start_index(document, first)
+    start = shared_start if shared_start is not None else first
     assignments = _candidate_assignments(ranges)
 
-    for block in document.blocks[first : last + 1]:
+    for block in document.blocks[start:answer_start]:
         if is_deterministically_excluded_question_block(block):
             continue
         if assignments.get(block.block_id, 0) != 1:
@@ -318,10 +349,23 @@ def build_question_candidates(
         )
 
     rule_ranges = generate_rule_ranges(document)
-    if rule_ranges and all(split_range.score >= split_threshold for split_range in rule_ranges):
+    strong_rule_ranges = bool(rule_ranges) and all(
+        split_range.score >= split_threshold for split_range in rule_ranges
+    )
+    rule_source_complete = strong_rule_ranges and _rule_ranges_cover_leading_source(
+        document,
+        rule_ranges,
+    )
+
+    if strong_rule_ranges and rule_source_complete:
         ranges: tuple[LLMSplitRange | RuleRange, ...] = rule_ranges
     elif llm_selection is not None:
         ranges = llm_selection.ranges
+    elif strong_rule_ranges and _has_ambiguous_leading_body_content(document, rule_ranges):
+        raise QuestionSplitError(
+            RejectReason.QUESTION_SPLIT_LOW_CONFIDENCE,
+            "leading source content makes the structural question boundary ambiguous",
+        )
     else:
         ranges = rule_ranges
 
