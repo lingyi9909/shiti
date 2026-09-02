@@ -139,6 +139,25 @@ def test_long_form_solution_extracts_only_explicit_original_final_answer() -> No
     assert answers[0].source_blocks == ("b2",)
 
 
+def test_long_form_solution_final_answer_wins_over_generic_analysis_split() -> None:
+    document = _document(
+        _paragraph("b1", 1, "参考答案"),
+        _paragraph(
+            "b2",
+            2,
+            "1. 解：由条件可得2x=4。最终答案为 x=2 解析：代回原式成立。",
+        ),
+    )
+
+    answers = extract_answer_candidates(document)
+
+    assert len(answers) == 1
+    assert answers[0].answer == "x=2"
+    assert "由条件可得2x=4。" in answers[0].analysis
+    assert "代回原式成立。" in answers[0].analysis
+    assert answers[0].source_blocks == ("b2",)
+
+
 def test_long_form_solution_without_reliable_original_final_answer_is_rejected() -> None:
     document = _document(
         _paragraph("b1", 1, "参考答案"),
