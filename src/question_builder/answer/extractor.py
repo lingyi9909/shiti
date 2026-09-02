@@ -55,7 +55,7 @@ _COMPACT_SIMPLE_ANSWER = re.compile(
     re.IGNORECASE,
 )
 _COMPACT_NUMBER_MARKER = re.compile(
-    r"(?P<prefix>^|\s{2,})(?P<number>\d{1,4})\s*[.、．)）]\s*"
+    r"(?P<prefix>^|\s+)(?P<number>\d{1,4})\s*[.、．)）]\s*"
 )
 _EXPLICIT_QUESTION_NUMBER = re.compile(
     r"^\s*第\s*(?P<number>\d{1,4}|[一二三四五六七八九十百]+)\s*题"
@@ -255,6 +255,13 @@ def _compact_numbered_bodies(block: ContentBlock) -> list[tuple[str, str]] | Non
         raise AnswerExtractionError(
             RejectReason.ANSWER_NOT_FOUND,
             "compact answer source cannot be completely parsed",
+        )
+
+    numbers = [int(match.group("number")) for match in matches]
+    if any(current != previous + 1 for previous, current in zip(numbers, numbers[1:])):
+        raise AnswerExtractionError(
+            RejectReason.ANSWER_NOT_FOUND,
+            "compact answer numbering is ambiguous",
         )
 
     entries: list[tuple[str, str]] = []
