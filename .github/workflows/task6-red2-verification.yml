@@ -1,0 +1,21 @@
+name: Task 6 RED2 Verification
+
+on:
+  push:
+    branches: [task6-verification-red2]
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact Task 6 head
+        uses: actions/checkout@v4
+        with:
+          ref: 46e0035fc5c85367f2a58a772d8434af4b2a8f17
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Task 6 tests
+        run: python -m pytest tests/unit/answer -v
