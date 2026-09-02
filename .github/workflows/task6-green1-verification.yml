@@ -1,0 +1,21 @@
+name: Task 6 GREEN1 Verification
+
+on:
+  push:
+    branches: [task6-verification-green1]
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact Task 6 head
+        uses: actions/checkout@v4
+        with:
+          ref: 1069db336b2880584b525a9461b4e926f198e46f
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Task 6 tests
+        run: python -m pytest tests/unit/answer -v
