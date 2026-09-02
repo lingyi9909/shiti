@@ -217,22 +217,43 @@ def _option_structure_consistent(document: DocumentIR, content_blocks: tuple[str
     return True
 
 
-def _candidate_set_assigns_all_critical_blocks(
+def _candidate_assignments(
+    ranges: tuple[LLMSplitRange | RuleRange, ...],
+) -> dict[str, int]:
+    assignments: dict[str, int] = {}
+    for split_range in ranges:
+        for block_id in split_range.content_blocks:
+            assignments[block_id] = assignments.get(block_id, 0) + 1
+    return assignments
+
+
+def _candidate_set_covers_internal_question_region(
     document: DocumentIR,
     ranges: tuple[LLMSplitRange | RuleRange, ...],
 ) -> bool:
     positions = _positions(document)
     first = min(positions[split_range.content_blocks[0]] for split_range in ranges)
     last = max(positions[split_range.content_blocks[-1]] for split_range in ranges)
-    answer_start = _answer_start_index(document)
-    last = min(last, answer_start - 1)
-
-    assignments: dict[str, int] = {}
-    for split_range in ranges:
-        for block_id in split_range.content_blocks:
-            assignments[block_id] = assignments.get(block_id, 0) + 1
+    assignments = _candidate_assignments(ranges)
 
     for block in document.blocks[first : last + 1]:
+        if is_deterministically_excluded_question_block(block):
+            continue
+        if assignments.get(block.block_id, 0) != 1:
+            return False
+    return True
+
+
+def _candidate_set_assigns_all_critical_blocks(
+    document: DocumentIR,
+    ranges: tuple[LLMSplitRange | RuleRange, ...],
+) -> bool:
+    answer_start = _answer_start_index(document)
+    assignments = _candidate_assignments(ranges)
+
+    for block in document.blocks[:answer_start]:
+        if is_deterministically_excluded_question_block(block):
+            continue
         if block.type in _CRITICAL_TYPES and assignments.get(block.block_id, 0) != 1:
             return False
     return True
@@ -336,6 +357,12 @@ def build_question_candidates(
             candidates.append(_candidate_from_llm(document, split_range))
         else:
             candidates.append(_candidate_from_rule(document, split_range))
+
+    if not _candidate_set_covers_internal_question_region(document, ranges):
+        raise QuestionSplitError(
+            RejectReason.QUESTION_CONTENT_INCOMPLETE,
+            "question candidate set leaves source content unassigned",
+        )
 
     if not _candidate_set_assigns_all_critical_blocks(document, ranges):
         raise QuestionSplitError(
