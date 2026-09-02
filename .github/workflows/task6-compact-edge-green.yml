@@ -1,0 +1,22 @@
+name: Task 6 Compact Edge GREEN
+
+on:
+  push:
+    branches:
+      - task6-compact-edge-green-verification
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact GREEN head
+        uses: actions/checkout@v4
+        with:
+          ref: f3ff9cf7ed183e977a915848ac0d998a4b82b768
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Task 6 tests
+        run: python -m pytest tests/unit/answer -v
