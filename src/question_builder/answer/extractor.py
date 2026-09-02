@@ -260,14 +260,25 @@ def _solution_answer(body: str) -> tuple[str, str] | None:
             RejectReason.ANSWER_NOT_FOUND,
             "long-form solution has no reliable original final answer",
         )
-    analysis = solution[: marker.start()].strip()
-    answer = solution[marker.end() :].strip()
+
+    process = solution[: marker.start()].strip()
+    final_region = solution[marker.end() :].strip()
+    trailing_analysis = ""
+    analysis_marker = _ANALYSIS_MARKER.search(final_region)
+    if analysis_marker is not None:
+        answer = final_region[: analysis_marker.start()].strip()
+        trailing_analysis = final_region[analysis_marker.end() :].strip()
+    else:
+        answer = final_region
+
     if not answer:
         raise AnswerExtractionError(
             RejectReason.ANSWER_NOT_FOUND,
             "long-form solution final answer marker has no source answer",
         )
-    return answer, analysis or "略"
+
+    analysis_parts = [part for part in (process, trailing_analysis) if part]
+    return answer, "\n".join(analysis_parts) or "略"
 
 
 def _numbered_entries(
@@ -304,13 +315,13 @@ def _deterministic_candidates(document: DocumentIR) -> list[AnswerCandidate]:
 
     candidates: list[AnswerCandidate] = []
     for number, source_blocks, body in _numbered_entries(blocks):
-        split = _split_answer_and_analysis(body)
-        if split is not None:
-            answer, analysis = split
+        solution = _solution_answer(body)
+        if solution is not None:
+            answer, analysis = solution
         else:
-            solution = _solution_answer(body)
-            if solution is not None:
-                answer, analysis = solution
+            split = _split_answer_and_analysis(body)
+            if split is not None:
+                answer, analysis = split
             elif explicit_section:
                 answer = _ANSWER_PREFIX.sub("", body).strip()
                 analysis = "略"
