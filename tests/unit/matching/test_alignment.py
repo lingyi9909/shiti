@@ -31,7 +31,7 @@ def _answer(index: int, number: str | None) -> AnswerCandidate:
 
 def _alignment_api():
     module = importlib.import_module("question_builder.matching.alignment")
-    return getattr(module, "align_sequences"), getattr(module, "AlignmentOp")
+    return module.align_sequences, module.AlignmentOp
 
 
 def test_perfect_sequence_aligns_every_pair_without_skips() -> None:
