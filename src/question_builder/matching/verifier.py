@@ -87,9 +87,11 @@ def parse_verifier_output(
         )
 
     raw_decision = parsed.get("decision")
+    if not isinstance(raw_decision, str):
+        raise VerifierContractError("decision must be PASS or FAIL")
     try:
         decision = VerifierDecision(raw_decision)
-    except (TypeError, ValueError) as exc:
+    except ValueError as exc:
         raise VerifierContractError("decision must be PASS or FAIL") from exc
 
     raw_score = parsed.get("score")
