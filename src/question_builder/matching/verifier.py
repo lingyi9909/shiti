@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from question_builder.config.models import QualityThresholds
@@ -11,12 +11,14 @@ from question_builder.domain.matching import MatchedQuestion, MatchEvidence
 from question_builder.domain.quality import RejectReason
 from question_builder.domain.question import QuestionCandidate
 from question_builder.matching.alignment import AlignmentResult, align_sequences
-from question_builder.matching.scoring import (
-    MATCH_SCORE_VERSION,
-    MatchSignals,
-    ScoredMatch,
-    score_pair,
+from question_builder.matching.scoring import MatchSignals, ScoredMatch, score_pair
+from question_builder.recognition.calibration import (
+    CalibrationRegistry,
+    MissingCalibrationError,
+    normalize_score,
 )
+from question_builder.recognition.contracts import RecognitionTask
+from question_builder.understanding.clustering import ExamCluster
 
 
 class VerifierDecision(StrEnum):
@@ -42,7 +44,22 @@ class VerifierResult:
             raise ValueError("verifier cited_blocks must be unique")
 
 
+@dataclass(frozen=True, slots=True)
+class VerifierExecution:
+    result: VerifierResult
+    provider: str
+    model: str
+
+    def __post_init__(self) -> None:
+        if not self.provider or not self.model:
+            raise ValueError("verifier provider and model are required")
+
+
 class VerifierContractError(ValueError):
+    pass
+
+
+class ClusterContextError(ValueError):
     pass
 
 
@@ -162,11 +179,32 @@ def _verifier_cites_both_sides(
     return bool(cited & set(question.content_blocks)) and bool(cited & set(answer.source_blocks))
 
 
+def _normalize_verifier_execution(
+    execution: VerifierExecution,
+    registry: CalibrationRegistry,
+) -> tuple[float, str]:
+    try:
+        normalized = normalize_score(
+            execution.provider,
+            execution.model,
+            RecognitionTask.LLM,
+            execution.result.score,
+            registry=registry,
+        )
+    except MissingCalibrationError as exc:
+        raise MatchRejected(
+            RejectReason.ANSWER_VERIFICATION_FAILED,
+            "independent verifier has no approved calibration profile",
+        ) from exc
+    return normalized.score, normalized.calibration_id
+
+
 def select_verified_match(
     question: QuestionCandidate,
     ranked_matches: Sequence[ScoredMatch],
-    verifier_result: VerifierResult,
+    verifier_execution: VerifierExecution,
     *,
+    calibration_registry: CalibrationRegistry,
     thresholds: QualityThresholds,
 ) -> MatchedQuestion:
     eligible = _eligible_ranked_matches(question, ranked_matches)
@@ -184,9 +222,14 @@ def select_verified_match(
             "top answer candidates do not satisfy the required score margin",
         )
 
+    verifier_result = verifier_execution.result
+    normalized_score, calibration_id = _normalize_verifier_execution(
+        verifier_execution,
+        calibration_registry,
+    )
     if (
         verifier_result.decision is not VerifierDecision.PASS
-        or verifier_result.score < thresholds.answer_verify_accept
+        or normalized_score < thresholds.answer_verify_accept
         or not _verifier_cites_both_sides(question, top.answer, verifier_result)
     ):
         raise MatchRejected(
@@ -197,6 +240,11 @@ def select_verified_match(
     evidence: dict[str, float | str | bool] = dict(top.evidence)
     evidence["verifier_decision"] = verifier_result.decision.value
     evidence["verifier_reason"] = verifier_result.reason
+    evidence["verifier_raw_score"] = verifier_result.score
+    evidence["verifier_normalized_score"] = normalized_score
+    evidence["verifier_provider"] = verifier_execution.provider
+    evidence["verifier_model"] = verifier_execution.model
+    evidence["verifier_calibration_id"] = calibration_id
     evidence["verifier_source_backed"] = True
     evidence["match_score_version"] = top.version
 
@@ -205,7 +253,7 @@ def select_verified_match(
         answer_candidate_id=top.answer.answer_candidate_id,
         match_score=top.score,
         second_best_score=second.score if second is not None else None,
-        verifier_score=verifier_result.score,
+        verifier_score=normalized_score,
         question_source_blocks=question.content_blocks,
         answer_source_blocks=top.answer.source_blocks,
         evidence=evidence,
@@ -213,20 +261,36 @@ def select_verified_match(
     return MatchedQuestion(question=question, answer=top.answer, evidence=match_evidence)
 
 
-def _missing_pair_score(
-    question: QuestionCandidate,
-    answer: AnswerCandidate,
-) -> ScoredMatch:
-    return ScoredMatch(
-        question=question,
-        answer=answer,
-        score=0.0,
-        eligible=False,
-        version=MATCH_SCORE_VERSION,
-        evidence={
-            "ineligible_reason": "missing_pair_evidence",
-            "score_version": MATCH_SCORE_VERSION,
-        },
+def _validate_cluster_context(
+    cluster: ExamCluster,
+    questions: Sequence[QuestionCandidate],
+    answers: Sequence[AnswerCandidate],
+) -> None:
+    if not cluster.accepted:
+        raise ClusterContextError("answer matcher requires an accepted ExamCluster")
+    document_ids = frozenset(cluster.document_ids)
+    for question in questions:
+        if question.document_id not in document_ids:
+            raise ClusterContextError(
+                f"question document {question.document_id} is outside accepted cluster {cluster.cluster_id}"
+            )
+    for answer in answers:
+        if answer.document_id not in document_ids:
+            raise ClusterContextError(
+                f"answer document {answer.document_id} is outside accepted cluster {cluster.cluster_id}"
+            )
+
+
+def _missing_pair_evidence(
+    questions: Sequence[QuestionCandidate],
+    answers: Sequence[AnswerCandidate],
+    signals_by_pair: Mapping[tuple[str, str], MatchSignals],
+) -> tuple[tuple[str, str], ...]:
+    return tuple(
+        (question.question_candidate_id, answer.answer_candidate_id)
+        for question in questions
+        for answer in answers
+        if (question.question_candidate_id, answer.answer_candidate_id) not in signals_by_pair
     )
 
 
@@ -238,23 +302,43 @@ def _rank_question_answers(
     scored: list[ScoredMatch] = []
     for answer in answers:
         key = (question.question_candidate_id, answer.answer_candidate_id)
-        signals = signals_by_pair.get(key)
-        if signals is None:
-            scored.append(_missing_pair_score(question, answer))
-        else:
-            scored.append(score_pair(question, answer, signals))
+        signals = signals_by_pair[key]
+        verified_signals = replace(signals, same_cluster=True)
+        scored.append(score_pair(question, answer, verified_signals))
     return tuple(sorted(scored, key=lambda item: item.score, reverse=True))
 
 
 def match_exam_cluster(
+    cluster: ExamCluster,
     questions: Sequence[QuestionCandidate],
     answers: Sequence[AnswerCandidate],
     *,
     signals_by_pair: Mapping[tuple[str, str], MatchSignals],
-    verifier_results: Mapping[tuple[str, str], VerifierResult],
+    verifier_results: Mapping[tuple[str, str], VerifierExecution],
+    calibration_registry: CalibrationRegistry,
     thresholds: QualityThresholds,
 ) -> ExamMatchResult:
+    _validate_cluster_context(cluster, questions, answers)
     alignment = align_sequences(questions, answers)
+
+    missing_pairs = _missing_pair_evidence(questions, answers, signals_by_pair)
+    if missing_pairs:
+        missing_description = ", ".join(f"{question_id}->{answer_id}" for question_id, answer_id in missing_pairs)
+        return ExamMatchResult(
+            alignment=alignment,
+            matched_questions=(),
+            rejections=tuple(
+                MatchRejection(
+                    question_candidate_id=question.question_candidate_id,
+                    reason_code=RejectReason.ANSWER_MATCH_AMBIGUOUS,
+                    message=f"missing pair evidence for accepted-cluster candidates: {missing_description}",
+                )
+                for question in questions
+            ),
+            unmatched_question_ids=tuple(question.question_candidate_id for question in questions),
+            unmatched_answer_ids=tuple(answer.answer_candidate_id for answer in answers),
+        )
+
     if alignment.ambiguous:
         return ExamMatchResult(
             alignment=alignment,
@@ -267,9 +351,7 @@ def match_exam_cluster(
                 )
                 for question in questions
             ),
-            unmatched_question_ids=tuple(
-                question.question_candidate_id for question in questions
-            ),
+            unmatched_question_ids=tuple(question.question_candidate_id for question in questions),
             unmatched_answer_ids=tuple(answer.answer_candidate_id for answer in answers),
         )
 
@@ -295,8 +377,8 @@ def match_exam_cluster(
             continue
 
         pair_key = (question.question_candidate_id, aligned_answer.answer_candidate_id)
-        verifier_result = verifier_results.get(pair_key)
-        if verifier_result is None:
+        verifier_execution = verifier_results.get(pair_key)
+        if verifier_execution is None:
             rejections.append(
                 MatchRejection(
                     question_candidate_id=question.question_candidate_id,
@@ -311,7 +393,8 @@ def match_exam_cluster(
                 select_verified_match(
                     question,
                     ranked,
-                    verifier_result,
+                    verifier_execution,
+                    calibration_registry=calibration_registry,
                     thresholds=thresholds,
                 )
             )
