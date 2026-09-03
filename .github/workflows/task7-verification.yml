@@ -12,7 +12,7 @@ jobs:
       - name: Checkout exact Task 7 implementation head
         uses: actions/checkout@v4
         with:
-          ref: 7705945026844ab019b7735b05178e97e03028b7
+          ref: b6a7d5f45e571808ad887d62eee8bbac1130685b
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
