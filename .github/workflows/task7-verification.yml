@@ -9,14 +9,14 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout exact Task 7 test head
+      - name: Checkout exact Task 7 scaffold head
         uses: actions/checkout@v4
         with:
-          ref: ce29075ba2cad8f5284797cd33bc1097a4c2d3da
+          ref: a06071a693739368b36a33993d2aad2a92eb2ee4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install
         run: python -m pip install -e '.[dev]'
-      - name: Run Task 7 scaffold RED
+      - name: Run Task 7 scaffold GREEN
         run: python -m pytest tests/unit/matching/test_scaffold.py -v
