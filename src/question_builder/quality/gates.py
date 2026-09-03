@@ -664,15 +664,28 @@ def run_quality_gates(
     thresholds: QualityThresholds,
     image_dir: Path | None = None,
 ) -> QualityGateResult:
-    for gate in (
-        lambda: _file_gate(context),
-        lambda: _document_gate(context),
-        lambda: _recognition_gate(context, thresholds),
-        lambda: _split_gate(context, thresholds),
-        lambda: _answer_gate(context, thresholds),
-        lambda: _final_gate(context, image_dir),
-    ):
-        rejection = gate()
-        if rejection is not None:
-            return rejection
+    rejection = _file_gate(context)
+    if rejection is not None:
+        return rejection
+
+    rejection = _document_gate(context)
+    if rejection is not None:
+        return rejection
+
+    rejection = _recognition_gate(context, thresholds)
+    if rejection is not None:
+        return rejection
+
+    rejection = _split_gate(context, thresholds)
+    if rejection is not None:
+        return rejection
+
+    rejection = _answer_gate(context, thresholds)
+    if rejection is not None:
+        return rejection
+
+    rejection = _final_gate(context, image_dir)
+    if rejection is not None:
+        return rejection
+
     return QualityGateResult(passed=True)
