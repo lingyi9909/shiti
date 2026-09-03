@@ -23,7 +23,7 @@ def _question() -> QuestionCandidate:
     )
 
 
-def _answer(answer_id: str, number: str, block_id: str) -> AnswerCandidate:
+def _answer(answer_id: str, number: str | None, block_id: str) -> AnswerCandidate:
     return AnswerCandidate(
         answer_candidate_id=answer_id,
         document_id="answer_doc",
@@ -168,10 +168,10 @@ def test_missing_competing_pair_evidence_fails_closed_before_margin_can_accept_t
     assert any("missing pair evidence" in item.message for item in result.rejections)
 
 
-def test_explicit_deterministic_hard_conflict_may_exclude_competitor_from_margin() -> None:
+def test_caller_cluster_conflict_cannot_hide_real_cluster_competitor() -> None:
     question = _question()
     answer1 = _answer("a1", "1", "ab1")
-    answer2 = _answer("a2", "2", "ab2")
+    answer2 = _answer("a2", None, "ab2")
 
     result = verifier.match_exam_cluster(
         _cluster(),
@@ -186,7 +186,9 @@ def test_explicit_deterministic_hard_conflict_may_exclude_competitor_from_margin
         thresholds=QualityThresholds(),
     )
 
-    assert [item.answer.answer_candidate_id for item in result.matched_questions] == ["a1"]
+    assert result.matched_questions == ()
+    assert result.rejections
+    assert result.rejections[0].reason_code is RejectReason.ANSWER_MATCH_AMBIGUOUS
 
 
 def test_verifier_gate_uses_calibrated_normalized_score_not_raw_model_score() -> None:
