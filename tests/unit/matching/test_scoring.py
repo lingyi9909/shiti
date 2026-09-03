@@ -34,9 +34,9 @@ def _answer() -> AnswerCandidate:
 def _scoring_api():
     module = importlib.import_module("question_builder.matching.scoring")
     return (
-        getattr(module, "MatchSignals"),
-        getattr(module, "score_pair"),
-        getattr(module, "MATCH_SCORE_VERSION"),
+        module.MatchSignals,
+        module.score_pair,
+        module.MATCH_SCORE_VERSION,
     )
 
 
