@@ -1,13 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from math import isclose
-from typing import Sequence
 
 from question_builder.domain.answer import AnswerCandidate
 from question_builder.domain.question import QuestionCandidate
-
 
 _MATCH_EQUAL = 4.0
 _MATCH_BOTH_UNNUMBERED = 1.0
