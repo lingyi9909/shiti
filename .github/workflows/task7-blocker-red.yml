@@ -9,10 +9,10 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout exact blocker fix head
+      - name: Checkout exact Task 7 develop head
         uses: actions/checkout@v4
         with:
-          ref: 7a97ef9920877aad25030be3566e541e3e6e2f85
+          ref: 8341ea0d11d3e5c8d7d5e9ed1b7fd87a86ee324e
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
