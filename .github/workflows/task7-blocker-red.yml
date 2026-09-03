@@ -1,4 +1,4 @@
-name: Task 7 Blocker GREEN
+name: Task 7 Blocker Verification
 
 on:
   push:
@@ -12,11 +12,11 @@ jobs:
       - name: Checkout exact blocker fix head
         uses: actions/checkout@v4
         with:
-          ref: cd10afb5cedf9553a8643b9527d77ba7529d9eb2
+          ref: 423f850542f9311b6dd317e2e15b6a2a588d53db
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install
         run: python -m pip install -e '.[dev]'
-      - name: Task 7 blocker regressions GREEN
-        run: python -m pytest tests/unit/matching/test_review_blockers.py -v
+      - name: Task 7 matching and golden
+        run: python -m pytest tests/unit/matching tests/golden/test_answer_matching_precision.py -v
