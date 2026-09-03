@@ -127,7 +127,7 @@ def test_verifier_pass_must_cite_both_question_and_answer_source() -> None:
     ranked = (_scored(scoring, question, answer, 0.999),)
 
     with pytest.raises(verifier.MatchRejected) as exc:
-        verifier.select_verified_match(
+        verifier._build_verified_match_evidence(
             question,
             ranked,
             _verifier_execution(verifier, 0.999, cited_blocks=("qb1",)),
@@ -143,7 +143,7 @@ def test_abstention_accepts_clear_margin_and_high_verifier_score() -> None:
     top = _answer("a1", "ab1")
     second = _answer("a2", "ab2")
 
-    matched = verifier.select_verified_match(
+    evidence = verifier._build_verified_match_evidence(
         question,
         (
             _scored(scoring, question, top, 0.996),
@@ -154,10 +154,10 @@ def test_abstention_accepts_clear_margin_and_high_verifier_score() -> None:
         thresholds=QualityThresholds(),
     )
 
-    assert matched.answer.answer_candidate_id == "a1"
-    assert matched.evidence.match_score == pytest.approx(0.996)
-    assert matched.evidence.second_best_score == pytest.approx(0.80)
-    assert matched.evidence.verifier_score == pytest.approx(0.997)
+    assert evidence.answer_candidate_id == "a1"
+    assert evidence.match_score == pytest.approx(0.996)
+    assert evidence.second_best_score == pytest.approx(0.80)
+    assert evidence.verifier_score == pytest.approx(0.997)
 
 
 def test_abstention_rejects_high_but_close_top_two() -> None:
@@ -167,7 +167,7 @@ def test_abstention_rejects_high_but_close_top_two() -> None:
     second = _answer("a2", "ab2")
 
     with pytest.raises(verifier.MatchRejected) as exc:
-        verifier.select_verified_match(
+        verifier._build_verified_match_evidence(
             question,
             (
                 _scored(scoring, question, top, 0.996),
@@ -187,7 +187,7 @@ def test_abstention_rejects_below_match_threshold_even_with_large_margin() -> No
     second = _answer("a2", "ab2")
 
     with pytest.raises(verifier.MatchRejected) as exc:
-        verifier.select_verified_match(
+        verifier._build_verified_match_evidence(
             question,
             (
                 _scored(scoring, question, top, 0.994),
@@ -206,7 +206,7 @@ def test_abstention_rejects_low_verifier_score() -> None:
     top = _answer("a1", "ab1")
 
     with pytest.raises(verifier.MatchRejected) as exc:
-        verifier.select_verified_match(
+        verifier._build_verified_match_evidence(
             question,
             (_scored(scoring, question, top, 0.999),),
             _verifier_execution(verifier, 0.994),
