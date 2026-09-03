@@ -1,0 +1,22 @@
+name: Task 8 Verification
+
+on:
+  push:
+    branches:
+      - task8-verification
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact Task 8 RED head
+        uses: actions/checkout@v4
+        with:
+          ref: 1e5bb159d14c673981f71ea23b8ce0bc1baa0f3a
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Task 8 RED
+        run: python -m pytest tests/unit/metadata tests/unit/export/test_final_contract.py -v
