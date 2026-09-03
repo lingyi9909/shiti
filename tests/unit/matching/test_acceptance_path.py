@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from question_builder.config.models import QualityThresholds
 from question_builder.domain.answer import AnswerCandidate
-from question_builder.domain.matching import MatchedQuestion
+from question_builder.domain.matching import MatchedQuestion, MatchEvidence
 from question_builder.domain.question import QuestionCandidate
 from question_builder.matching import scoring, verifier
 from question_builder.recognition.calibration import CalibrationProfile, CalibrationRegistry
@@ -73,14 +73,11 @@ def _registry() -> CalibrationRegistry:
     )
 
 
-def _invoke_legacy_select(
+def _low_level_evidence(
     question: QuestionCandidate,
     ranked: tuple[scoring.ScoredMatch, ...],
-) -> object | None:
-    select = getattr(verifier, "select_verified_match", None)
-    if select is None:
-        return None
-    return select(
+) -> MatchEvidence:
+    return verifier._build_verified_match_evidence(
         question,
         ranked,
         _execution(0.999),
@@ -93,12 +90,14 @@ def test_out_of_cluster_manual_scored_match_cannot_produce_formal_matched_questi
     question = _question(document_id="outside_cluster_doc")
     answer = _answer("a1", "ab1")
 
-    result = _invoke_legacy_select(
+    evidence = _low_level_evidence(
         question,
         (_scored(question, answer, 0.999),),
     )
 
-    assert not isinstance(result, MatchedQuestion)
+    assert isinstance(evidence, MatchEvidence)
+    assert not isinstance(evidence, MatchedQuestion)
+    assert not hasattr(verifier, "select_verified_match")
 
 
 def test_partial_ranked_subset_cannot_bypass_competing_answer_margin() -> None:
@@ -106,9 +105,11 @@ def test_partial_ranked_subset_cannot_bypass_competing_answer_margin() -> None:
     answer1 = _answer("a1", "ab1")
     _answer2 = _answer("a2", "ab2")
 
-    result = _invoke_legacy_select(
+    evidence = _low_level_evidence(
         question,
         (_scored(question, answer1, 0.999),),
     )
 
-    assert not isinstance(result, MatchedQuestion)
+    assert isinstance(evidence, MatchEvidence)
+    assert not isinstance(evidence, MatchedQuestion)
+    assert not hasattr(verifier, "select_verified_match")
