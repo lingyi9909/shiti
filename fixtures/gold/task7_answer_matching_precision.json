@@ -1,0 +1,34 @@
+{
+  "questions": [
+    {"id": "q_a1", "number": "1", "type": "选择题", "block": "qb_a1"},
+    {"id": "q2", "number": "2", "type": "填空题", "block": "qb2"},
+    {"id": "q_b1", "number": "1", "type": "填空题", "block": "qb_b1"},
+    {"id": "q3", "number": "3", "type": "选择题", "block": "qb3"}
+  ],
+  "answers": [
+    {"id": "a_a1", "number": "1", "answer": "A", "block": "ab_a1"},
+    {"id": "a2", "number": "2", "answer": "15", "block": "ab2"},
+    {"id": "a_b1", "number": "1", "answer": "x=2", "block": "ab_b1"},
+    {"id": "a3", "number": "3", "answer": "B", "block": "ab3"}
+  ],
+  "signals": [
+    {"q": "q_a1", "a": "a_a1", "values": {"same_cluster": true, "cluster_conflict": false, "document_relation": 1.0, "number_consistency": 1.0, "sequence_consistency": 1.0, "type_compatibility": 1.0, "count_compatibility": 1.0, "answer_format_compatibility": 1.0, "filename_title_consistency": 1.0, "semantic_consistency": 1.0}},
+    {"q": "q2", "a": "a2", "values": {"same_cluster": true, "cluster_conflict": false, "document_relation": 1.0, "number_consistency": 1.0, "sequence_consistency": 1.0, "type_compatibility": 1.0, "count_compatibility": 1.0, "answer_format_compatibility": 1.0, "filename_title_consistency": 1.0, "semantic_consistency": 1.0}},
+    {"q": "q_b1", "a": "a_b1", "values": {"same_cluster": true, "cluster_conflict": false, "document_relation": 1.0, "number_consistency": 1.0, "sequence_consistency": 1.0, "type_compatibility": 1.0, "count_compatibility": 1.0, "answer_format_compatibility": 1.0, "filename_title_consistency": 1.0, "semantic_consistency": 1.0}},
+    {"q": "q3", "a": "a3", "values": {"same_cluster": true, "cluster_conflict": false, "document_relation": 1.0, "number_consistency": 1.0, "sequence_consistency": 1.0, "type_compatibility": 1.0, "count_compatibility": 1.0, "answer_format_compatibility": 1.0, "filename_title_consistency": 1.0, "semantic_consistency": 1.0}},
+    {"q": "q_a1", "a": "a_b1", "values": {"same_cluster": true, "cluster_conflict": false, "document_relation": 0.95, "number_consistency": 1.0, "sequence_consistency": 0.2, "type_compatibility": 0.2, "count_compatibility": 1.0, "answer_format_compatibility": 0.3, "filename_title_consistency": 0.95, "semantic_consistency": 0.999}},
+    {"q": "q_b1", "a": "a_a1", "values": {"same_cluster": true, "cluster_conflict": false, "document_relation": 0.95, "number_consistency": 1.0, "sequence_consistency": 0.2, "type_compatibility": 0.2, "count_compatibility": 1.0, "answer_format_compatibility": 0.3, "filename_title_consistency": 0.95, "semantic_consistency": 0.999}}
+  ],
+  "verifiers": [
+    {"q": "q_a1", "a": "a_a1", "score": 0.999, "cited_blocks": ["qb_a1", "ab_a1"]},
+    {"q": "q2", "a": "a2", "score": 0.999, "cited_blocks": ["qb2", "ab2"]},
+    {"q": "q_b1", "a": "a_b1", "score": 0.999, "cited_blocks": ["qb_b1", "ab_b1"]},
+    {"q": "q3", "a": "a3", "score": 0.999, "cited_blocks": ["qb3", "ab3"]}
+  ],
+  "expected": [
+    ["q_a1", "a_a1"],
+    ["q2", "a2"],
+    ["q_b1", "a_b1"],
+    ["q3", "a3"]
+  ]
+}
