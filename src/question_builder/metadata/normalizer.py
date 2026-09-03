@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from question_builder.domain.document import DocumentIR
-from question_builder.domain.final import FinalQuestionRecord, _ISO_639_1_CODES
+from question_builder.domain.final import _ISO_639_1_CODES, FinalQuestionRecord
 from question_builder.domain.matching import MatchedQuestion
 from question_builder.export.markdown import render_question_markdown
 
@@ -357,7 +357,11 @@ def _source_files(question_document: DocumentIR, answer_document: DocumentIR) ->
 
 def _validate_answer_sources(matched: MatchedQuestion, answer_document: DocumentIR) -> None:
     known_blocks = {block.block_id for block in answer_document.blocks}
-    missing = [block_id for block_id in matched.answer.source_blocks if block_id not in known_blocks]
+    missing = [
+        block_id
+        for block_id in matched.answer.source_blocks
+        if block_id not in known_blocks
+    ]
     if missing:
         raise FinalBuildError(f"answer source blocks are missing: {missing}")
 
