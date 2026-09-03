@@ -35,7 +35,11 @@ def _answer(answer_id: str, number: str, block_id: str) -> AnswerCandidate:
     )
 
 
-def _cluster(*, accepted: bool = True, document_ids: tuple[str, ...] = ("question_doc", "answer_doc")) -> ExamCluster:
+def _cluster(
+    *,
+    accepted: bool = True,
+    document_ids: tuple[str, ...] = ("question_doc", "answer_doc"),
+) -> ExamCluster:
     return ExamCluster(
         cluster_id="cluster_test",
         document_ids=document_ids,
@@ -93,7 +97,11 @@ def _registry(*, scale: float = 1.0, offset: float = 0.0) -> CalibrationRegistry
     )
 
 
-def _scored(question: QuestionCandidate, answer: AnswerCandidate, score: float = 0.999) -> scoring.ScoredMatch:
+def _scored(
+    question: QuestionCandidate,
+    answer: AnswerCandidate,
+    score: float = 0.999,
+) -> scoring.ScoredMatch:
     return scoring.ScoredMatch(
         question=question,
         answer=answer,
@@ -104,7 +112,7 @@ def _scored(question: QuestionCandidate, answer: AnswerCandidate, score: float =
     )
 
 
-def test_matcher_rejects_candidate_outside_real_accepted_cluster_even_if_signals_claim_same_cluster() -> None:
+def test_matcher_rejects_candidate_outside_real_cluster_even_if_signals_claim_same() -> None:
     question = _question()
     answer = _answer("a1", "1", "ab1")
 
@@ -153,7 +161,10 @@ def test_missing_competing_pair_evidence_fails_closed_before_margin_can_accept_t
 
     assert result.matched_questions == ()
     assert result.rejections
-    assert all(item.reason_code is RejectReason.ANSWER_MATCH_AMBIGUOUS for item in result.rejections)
+    assert all(
+        item.reason_code is RejectReason.ANSWER_MATCH_AMBIGUOUS
+        for item in result.rejections
+    )
     assert any("missing pair evidence" in item.message for item in result.rejections)
 
 
@@ -194,7 +205,7 @@ def test_verifier_gate_uses_calibrated_normalized_score_not_raw_model_score() ->
     assert exc.value.reason_code is RejectReason.ANSWER_VERIFICATION_FAILED
 
 
-def test_approved_normalization_can_raise_raw_verifier_score_above_gate_and_preserves_provenance() -> None:
+def test_approved_normalization_preserves_verifier_provenance() -> None:
     question = _question()
     answer = _answer("a1", "1", "ab1")
 
