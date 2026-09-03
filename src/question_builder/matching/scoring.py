@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from question_builder.domain.answer import AnswerCandidate
 from question_builder.domain.question import QuestionCandidate
 
-
 MATCH_SCORE_VERSION = "answer_match_v1"
 
 _WEIGHTS = {
