@@ -12,7 +12,7 @@ jobs:
       - name: Checkout exact Task 8 full verification head
         uses: actions/checkout@v4
         with:
-          ref: 90460722e0d7961809e2b2d836839a955dec00bc
+          ref: 547d860f63a79067314198a24ba3e6fcc0805eb7
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
