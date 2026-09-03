@@ -196,7 +196,7 @@ def test_verifier_gate_uses_calibrated_normalized_score_not_raw_model_score() ->
     answer = _answer("a1", "1", "ab1")
 
     with pytest.raises(verifier.MatchRejected) as exc:
-        verifier.select_verified_match(
+        verifier._build_verified_match_evidence(
             question,
             (_scored(question, answer),),
             _execution(0.999),
@@ -211,7 +211,7 @@ def test_approved_normalization_preserves_verifier_provenance() -> None:
     question = _question()
     answer = _answer("a1", "1", "ab1")
 
-    matched = verifier.select_verified_match(
+    evidence = verifier._build_verified_match_evidence(
         question,
         (_scored(question, answer),),
         _execution(0.900),
@@ -219,12 +219,12 @@ def test_approved_normalization_preserves_verifier_provenance() -> None:
         thresholds=QualityThresholds(),
     )
 
-    assert matched.evidence.verifier_score == pytest.approx(0.997)
-    assert matched.evidence.evidence["verifier_raw_score"] == pytest.approx(0.900)
-    assert matched.evidence.evidence["verifier_normalized_score"] == pytest.approx(0.997)
-    assert matched.evidence.evidence["verifier_provider"] == "verifier-provider"
-    assert matched.evidence.evidence["verifier_model"] == "verifier-model"
-    assert matched.evidence.evidence["verifier_calibration_id"] == (
+    assert evidence.verifier_score == pytest.approx(0.997)
+    assert evidence.evidence["verifier_raw_score"] == pytest.approx(0.900)
+    assert evidence.evidence["verifier_normalized_score"] == pytest.approx(0.997)
+    assert evidence.evidence["verifier_provider"] == "verifier-provider"
+    assert evidence.evidence["verifier_model"] == "verifier-model"
+    assert evidence.evidence["verifier_calibration_id"] == (
         "verifier-provider/verifier-model/llm@task7-test-v1"
     )
 
@@ -234,7 +234,7 @@ def test_missing_verifier_calibration_fails_closed() -> None:
     answer = _answer("a1", "1", "ab1")
 
     with pytest.raises(verifier.MatchRejected) as exc:
-        verifier.select_verified_match(
+        verifier._build_verified_match_evidence(
             question,
             (_scored(question, answer),),
             _execution(0.999),
