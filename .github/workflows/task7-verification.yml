@@ -9,14 +9,14 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout exact Task 7 behavior test head
+      - name: Checkout exact Task 7 implementation head
         uses: actions/checkout@v4
         with:
-          ref: e222ee221e0578838ab05579fb45644f0e5b347a
+          ref: cede1a329396635c69dd29ab6c8ef14f47f49596
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install
         run: python -m pip install -e '.[dev]'
-      - name: Run Task 7 behavior RED
+      - name: Run Task 7 GREEN
         run: python -m pytest tests/unit/matching tests/golden/test_answer_matching_precision.py -v
