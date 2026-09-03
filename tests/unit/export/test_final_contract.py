@@ -86,7 +86,12 @@ def _answer_document(*, document_id: str = "adoc") -> DocumentIR:
     )
 
 
-def _matched(*, question_document_id: str = "qdoc", answer_document_id: str = "adoc", with_image: bool = True) -> MatchedQuestion:
+def _matched(
+    *,
+    question_document_id: str = "qdoc",
+    answer_document_id: str = "adoc",
+    with_image: bool = True,
+) -> MatchedQuestion:
     question_blocks = ("qb1", "qb2") if with_image else ("qb1",)
     question = QuestionCandidate(
         question_candidate_id="q1",
@@ -124,12 +129,42 @@ def _matched(*, question_document_id: str = "qdoc", answer_document_id: str = "a
 def _metadata():
     return normalize_metadata(
         (
-            MetadataCandidate(field="text_course", value="数学", source=MetadataSource.FILENAME, score=0.95),
-            MetadataCandidate(field="text_grade_level", value="初一", source=MetadataSource.FILENAME, score=0.95),
-            MetadataCandidate(field="text_paper", value="2024年期末数学试卷", source=MetadataSource.TITLE_HEADER, score=0.98),
-            MetadataCandidate(field="language", value="zh", source=MetadataSource.EXPLICIT_DOCUMENT, score=1.0),
-            MetadataCandidate(field="text_year", value="2024年", source=MetadataSource.FILENAME, score=0.95),
-            MetadataCandidate(field="question_type", value="填空题", source=MetadataSource.EXPLICIT_DOCUMENT, score=1.0),
+            MetadataCandidate(
+                field="text_course",
+                value="数学",
+                source=MetadataSource.FILENAME,
+                score=0.95,
+            ),
+            MetadataCandidate(
+                field="text_grade_level",
+                value="初一",
+                source=MetadataSource.FILENAME,
+                score=0.95,
+            ),
+            MetadataCandidate(
+                field="text_paper",
+                value="2024年期末数学试卷",
+                source=MetadataSource.TITLE_HEADER,
+                score=0.98,
+            ),
+            MetadataCandidate(
+                field="language",
+                value="zh",
+                source=MetadataSource.EXPLICIT_DOCUMENT,
+                score=1.0,
+            ),
+            MetadataCandidate(
+                field="text_year",
+                value="2024年",
+                source=MetadataSource.FILENAME,
+                score=0.95,
+            ),
+            MetadataCandidate(
+                field="question_type",
+                value="填空题",
+                source=MetadataSource.EXPLICIT_DOCUMENT,
+                score=1.0,
+            ),
         )
     )
 
@@ -212,7 +247,8 @@ def test_slim_md5_v1_preserves_actual_formula_and_image_reference_content() -> N
     assert slim_question_md5(baseline) != slim_question_md5('$x^2$\n\n<img src="image/b.png">')
 
 
-def test_final_builder_fails_closed_when_document_identity_does_not_match_matched_question() -> None:
+def test_final_builder_fails_closed_when_document_identity_does_not_match(
+) -> None:
     with pytest.raises(FinalBuildError, match="question document"):
         build_final_question(
             _matched(),
