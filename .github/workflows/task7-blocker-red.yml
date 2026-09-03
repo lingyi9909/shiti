@@ -1,0 +1,22 @@
+name: Task 7 Blocker RED
+
+on:
+  push:
+    branches:
+      - task7-blocker-verification
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact blocker test head
+        uses: actions/checkout@v4
+        with:
+          ref: f7ef168be7d29a5e6907d3337a4b887ca0c6bf89
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Task 7 blocker regressions RED
+        run: python -m pytest tests/unit/matching/test_review_blockers.py -v
