@@ -8,6 +8,15 @@ from pydantic import Field, field_serializer, field_validator
 from question_builder.domain.document import DomainModel, freeze_value, thaw_value
 
 
+class QualityStage(StrEnum):
+    FILE = "file"
+    DOCUMENT_IR = "document_ir"
+    RECOGNITION = "recognition"
+    QUESTION_SPLIT = "question_split"
+    ANSWER_MATCH = "answer_match"
+    FINAL_CONTRACT = "final_contract"
+
+
 class RejectReason(StrEnum):
     DOCUMENT_PARSE_FAILED = "DOCUMENT_PARSE_FAILED"
     DOCUMENT_RELATION_BROKEN = "DOCUMENT_RELATION_BROKEN"
