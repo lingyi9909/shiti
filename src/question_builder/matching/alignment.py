@@ -127,16 +127,16 @@ def align_sequences(
     question_index = question_count
     answer_index = answer_count
     while question_index > 0 or answer_index > 0:
-        operation = choices[question_index][answer_index]
-        if operation is None:
+        backtrace_op = choices[question_index][answer_index]
+        if backtrace_op is None:
             raise RuntimeError("alignment backtrace is incomplete")
 
-        if operation is AlignmentOp.MATCH:
+        if backtrace_op is AlignmentOp.MATCH:
             question = questions[question_index - 1]
             answer = answers[answer_index - 1]
             steps_reversed.append(
                 AlignmentStep(
-                    operation=operation,
+                    operation=backtrace_op,
                     question_index=question_index - 1,
                     answer_index=answer_index - 1,
                     question_number=question.question_number,
@@ -146,11 +146,11 @@ def align_sequences(
             )
             question_index -= 1
             answer_index -= 1
-        elif operation is AlignmentOp.SKIP_QUESTION:
+        elif backtrace_op is AlignmentOp.SKIP_QUESTION:
             question = questions[question_index - 1]
             steps_reversed.append(
                 AlignmentStep(
-                    operation=operation,
+                    operation=backtrace_op,
                     question_index=question_index - 1,
                     answer_index=None,
                     question_number=question.question_number,
@@ -163,7 +163,7 @@ def align_sequences(
             answer = answers[answer_index - 1]
             steps_reversed.append(
                 AlignmentStep(
-                    operation=operation,
+                    operation=backtrace_op,
                     question_index=None,
                     answer_index=answer_index - 1,
                     question_number=None,
