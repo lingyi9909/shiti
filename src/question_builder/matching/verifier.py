@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Mapping, Sequence
 
 from question_builder.config.models import QualityThresholds
 from question_builder.domain.answer import AnswerCandidate
-from question_builder.domain.matching import MatchEvidence, MatchedQuestion
+from question_builder.domain.matching import MatchedQuestion, MatchEvidence
 from question_builder.domain.quality import RejectReason
 from question_builder.domain.question import QuestionCandidate
 from question_builder.matching.alignment import AlignmentResult, align_sequences
-from question_builder.matching.scoring import MATCH_SCORE_VERSION, MatchSignals, ScoredMatch, score_pair
+from question_builder.matching.scoring import (
+    MATCH_SCORE_VERSION,
+    MatchSignals,
+    ScoredMatch,
+    score_pair,
+)
 
 
 class VerifierDecision(StrEnum):
@@ -273,7 +278,11 @@ def match_exam_cluster(
         aligned_answer = answers[answer_index]
         ranked = _rank_question_answers(question, answers, signals_by_pair)
         eligible = tuple(item for item in ranked if item.eligible)
-        if not eligible or eligible[0].answer.answer_candidate_id != aligned_answer.answer_candidate_id:
+        aligned_is_top = (
+            bool(eligible)
+            and eligible[0].answer.answer_candidate_id == aligned_answer.answer_candidate_id
+        )
+        if not aligned_is_top:
             rejections.append(
                 MatchRejection(
                     question_candidate_id=question.question_candidate_id,
