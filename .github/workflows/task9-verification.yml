@@ -9,10 +9,10 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout exact Task 9 typed implementation head
+      - name: Checkout exact formal Task 9 head
         uses: actions/checkout@v4
         with:
-          ref: 2c7aaf109da6754da0821ed7d2980fd6aa0e7320
+          ref: 3aa89946ca1923436956b07ea69ffa23588ebd2b
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
