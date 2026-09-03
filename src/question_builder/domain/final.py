@@ -116,8 +116,11 @@ class FinalQuestionRecord(DomainModel):
         required_keys = {
             "slim_question_md5",
             "copyright",
+            "source_files",
             "source_question_blocks",
             "source_answer_blocks",
+            "pipeline_version",
+            "md5_version",
         }
         missing = required_keys - parsed.keys()
         if missing:
@@ -130,6 +133,18 @@ class FinalQuestionRecord(DomainModel):
             raise ValueError("static_info slim_question_md5 must be 32 lowercase hex characters")
         if parsed["copyright"] not in ("0", "1") or not isinstance(parsed["copyright"], str):
             raise ValueError('static_info copyright must be string "0" or "1"')
+        if parsed["md5_version"] != "slim_md5_v1":
+            raise ValueError('static_info md5_version must be "slim_md5_v1"')
+        pipeline_version = parsed["pipeline_version"]
+        if not isinstance(pipeline_version, str) or not pipeline_version.strip():
+            raise ValueError("static_info pipeline_version must be a non-empty string")
+        source_files = parsed["source_files"]
+        if (
+            not isinstance(source_files, list)
+            or not source_files
+            or any(not isinstance(item, str) or not item for item in source_files)
+        ):
+            raise ValueError("static_info source_files must be a non-empty list of file names")
         for key in ("source_question_blocks", "source_answer_blocks"):
             block_ids = parsed[key]
             if (
