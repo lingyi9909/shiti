@@ -222,13 +222,12 @@ def _document_gate(context: QualityGateContext) -> QualityGateResult | None:
                     {"block_id": block.block_id, "reason": reason},
                 )
             if reason == RejectReason.FORMULA_UNRESOLVED.value:
-                if context.answer.matched is None or True:
-                    return _reject(
-                        context,
-                        QualityStage.DOCUMENT_IR,
-                        RejectReason.FORMULA_UNRESOLVED,
-                        {"block_id": block.block_id, "reason": reason},
-                    )
+                return _reject(
+                    context,
+                    QualityStage.DOCUMENT_IR,
+                    RejectReason.FORMULA_UNRESOLVED,
+                    {"block_id": block.block_id, "reason": reason},
+                )
             if reason == RejectReason.TABLE_UNRESOLVED.value:
                 return _reject(
                     context,
@@ -503,7 +502,10 @@ def _language_only_validation_failure(payload: Mapping[str, Any]) -> bool:
     try:
         FinalQuestionRecord.model_validate(payload)
     except ValidationError as exc:
-        return bool(exc.errors()) and all(error.get("loc") == ("language",) for error in exc.errors())
+        errors = exc.errors()
+        return bool(errors) and all(
+            error.get("loc") == ("language",) for error in errors
+        )
     return False
 
 
