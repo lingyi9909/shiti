@@ -176,7 +176,9 @@ def _verifier_cites_both_sides(
     verifier_result: VerifierResult,
 ) -> bool:
     cited = set(verifier_result.cited_blocks)
-    return bool(cited & set(question.content_blocks)) and bool(cited & set(answer.source_blocks))
+    return bool(cited & set(question.content_blocks)) and bool(
+        cited & set(answer.source_blocks)
+    )
 
 
 def _normalize_verifier_execution(
@@ -272,12 +274,14 @@ def _validate_cluster_context(
     for question in questions:
         if question.document_id not in document_ids:
             raise ClusterContextError(
-                f"question document {question.document_id} is outside accepted cluster {cluster.cluster_id}"
+                "question document "
+                f"{question.document_id} is outside accepted cluster {cluster.cluster_id}"
             )
     for answer in answers:
         if answer.document_id not in document_ids:
             raise ClusterContextError(
-                f"answer document {answer.document_id} is outside accepted cluster {cluster.cluster_id}"
+                "answer document "
+                f"{answer.document_id} is outside accepted cluster {cluster.cluster_id}"
             )
 
 
@@ -323,7 +327,10 @@ def match_exam_cluster(
 
     missing_pairs = _missing_pair_evidence(questions, answers, signals_by_pair)
     if missing_pairs:
-        missing_description = ", ".join(f"{question_id}->{answer_id}" for question_id, answer_id in missing_pairs)
+        missing_description = ", ".join(
+            f"{question_id}->{answer_id}"
+            for question_id, answer_id in missing_pairs
+        )
         return ExamMatchResult(
             alignment=alignment,
             matched_questions=(),
@@ -331,11 +338,16 @@ def match_exam_cluster(
                 MatchRejection(
                     question_candidate_id=question.question_candidate_id,
                     reason_code=RejectReason.ANSWER_MATCH_AMBIGUOUS,
-                    message=f"missing pair evidence for accepted-cluster candidates: {missing_description}",
+                    message=(
+                        "missing pair evidence for accepted-cluster candidates: "
+                        f"{missing_description}"
+                    ),
                 )
                 for question in questions
             ),
-            unmatched_question_ids=tuple(question.question_candidate_id for question in questions),
+            unmatched_question_ids=tuple(
+                question.question_candidate_id for question in questions
+            ),
             unmatched_answer_ids=tuple(answer.answer_candidate_id for answer in answers),
         )
 
@@ -351,7 +363,9 @@ def match_exam_cluster(
                 )
                 for question in questions
             ),
-            unmatched_question_ids=tuple(question.question_candidate_id for question in questions),
+            unmatched_question_ids=tuple(
+                question.question_candidate_id for question in questions
+            ),
             unmatched_answer_ids=tuple(answer.answer_candidate_id for answer in answers),
         )
 
