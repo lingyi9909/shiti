@@ -19,7 +19,9 @@ def _fixture() -> dict[str, object]:
     )
 
 
-def _candidates(fixture: dict[str, object]) -> tuple[tuple[QuestionCandidate, ...], tuple[AnswerCandidate, ...]]:
+def _candidates(
+    fixture: dict[str, object],
+) -> tuple[tuple[QuestionCandidate, ...], tuple[AnswerCandidate, ...]]:
     question_items = fixture["questions"]
     answer_items = fixture["answers"]
     assert isinstance(question_items, list)
@@ -162,5 +164,8 @@ def test_missing_plausible_wrong_pair_evidence_cannot_manufacture_golden_pass() 
 
     assert result.matched_questions == ()
     assert result.rejections
-    assert all(item.reason_code is RejectReason.ANSWER_MATCH_AMBIGUOUS for item in result.rejections)
+    assert all(
+        item.reason_code is RejectReason.ANSWER_MATCH_AMBIGUOUS
+        for item in result.rejections
+    )
     assert any("missing pair evidence" in item.message for item in result.rejections)
