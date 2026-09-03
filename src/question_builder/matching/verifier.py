@@ -201,14 +201,14 @@ def _normalize_verifier_execution(
     return normalized.score, normalized.calibration_id
 
 
-def select_verified_match(
+def _build_verified_match_evidence(
     question: QuestionCandidate,
     ranked_matches: Sequence[ScoredMatch],
     verifier_execution: VerifierExecution,
     *,
     calibration_registry: CalibrationRegistry,
     thresholds: QualityThresholds,
-) -> MatchedQuestion:
+) -> MatchEvidence:
     eligible = _eligible_ranked_matches(question, ranked_matches)
     top = eligible[0]
     second = eligible[1] if len(eligible) > 1 else None
@@ -250,7 +250,7 @@ def select_verified_match(
     evidence["verifier_source_backed"] = True
     evidence["match_score_version"] = top.version
 
-    match_evidence = MatchEvidence(
+    return MatchEvidence(
         question_candidate_id=question.question_candidate_id,
         answer_candidate_id=top.answer.answer_candidate_id,
         match_score=top.score,
@@ -260,7 +260,6 @@ def select_verified_match(
         answer_source_blocks=top.answer.source_blocks,
         evidence=evidence,
     )
-    return MatchedQuestion(question=question, answer=top.answer, evidence=match_evidence)
 
 
 def _validate_cluster_context(
@@ -307,8 +306,12 @@ def _rank_question_answers(
     for answer in answers:
         key = (question.question_candidate_id, answer.answer_candidate_id)
         signals = signals_by_pair[key]
-        verified_signals = replace(signals, same_cluster=True)
-        scored.append(score_pair(question, answer, verified_signals))
+        cluster_bound_signals = replace(
+            signals,
+            same_cluster=True,
+            cluster_conflict=False,
+        )
+        scored.append(score_pair(question, answer, cluster_bound_signals))
     return tuple(sorted(scored, key=lambda item: item.score, reverse=True))
 
 
@@ -403,13 +406,18 @@ def match_exam_cluster(
             continue
 
         try:
+            match_evidence = _build_verified_match_evidence(
+                question,
+                ranked,
+                verifier_execution,
+                calibration_registry=calibration_registry,
+                thresholds=thresholds,
+            )
             matched_questions.append(
-                select_verified_match(
-                    question,
-                    ranked,
-                    verifier_execution,
-                    calibration_registry=calibration_registry,
-                    thresholds=thresholds,
+                MatchedQuestion(
+                    question=question,
+                    answer=aligned_answer,
+                    evidence=match_evidence,
                 )
             )
         except MatchRejected as exc:
