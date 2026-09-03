@@ -12,7 +12,7 @@ jobs:
       - name: Checkout exact blocker fix head
         uses: actions/checkout@v4
         with:
-          ref: 423f850542f9311b6dd317e2e15b6a2a588d53db
+          ref: 7a97ef9920877aad25030be3566e541e3e6e2f85
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
