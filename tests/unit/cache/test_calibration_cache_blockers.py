@@ -92,7 +92,9 @@ async def test_cached_provider_raw_output_is_renormalized_by_current_calibration
 
 
 @pytest.mark.asyncio
-async def test_cache_rejects_post_calibration_score_as_persistent_provider_payload(tmp_path) -> None:
+async def test_cache_rejects_post_calibration_score_as_persistent_provider_payload(
+    tmp_path,
+) -> None:
     service = CacheService(
         db_path=tmp_path / "state.sqlite3",
         cache_dir=tmp_path / "cache",
