@@ -4,12 +4,15 @@ import hashlib
 import json
 import os
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import aiosqlite
+from pydantic import ValidationError
 
+from question_builder.recognition.contracts import ProviderOutput
 from question_builder.storage.db import ensure_storage_schema
 
 
@@ -89,9 +92,13 @@ class CacheService:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         await ensure_storage_schema(self.db_path)
 
-    async def put(self, key: CacheKey, payload: dict[str, Any]) -> CacheEntry:
-        self._reject_sensitive_payload(payload)
-        payload_bytes = self._canonical_payload(payload)
+    async def put(
+        self,
+        key: CacheKey,
+        payload: ProviderOutput | Mapping[str, Any],
+    ) -> CacheEntry:
+        provider_output = self._coerce_provider_output(payload)
+        payload_bytes = self._canonical_payload(provider_output)
         payload_sha256 = hashlib.sha256(payload_bytes).hexdigest()
         cache_key = key.digest()
         relative_path = Path("payloads") / payload_sha256[:2] / f"{payload_sha256}.json"
@@ -153,7 +160,7 @@ class CacheService:
             relative_path=relative_path_text,
         )
 
-    async def get(self, key: CacheKey) -> dict[str, Any] | None:
+    async def get(self, key: CacheKey) -> ProviderOutput | None:
         cache_key = key.digest()
         async with aiosqlite.connect(self.db_path) as connection:
             cursor = await connection.execute(
@@ -182,12 +189,34 @@ class CacheService:
         if not isinstance(payload, dict):
             raise CacheCorruptionError("cache payload must be a JSON object")
         self._reject_sensitive_payload(payload)
-        return payload
+        try:
+            return ProviderOutput.model_validate(payload)
+        except ValidationError as exc:
+            raise CacheCorruptionError(
+                "cache payload is not a valid raw provider output"
+            ) from exc
+
+    @classmethod
+    def _coerce_provider_output(
+        cls,
+        payload: ProviderOutput | Mapping[str, Any],
+    ) -> ProviderOutput:
+        if isinstance(payload, ProviderOutput):
+            return payload
+        if not isinstance(payload, Mapping):
+            raise TypeError("cache payload must be ProviderOutput-compatible")
+        cls._reject_sensitive_payload(payload)
+        try:
+            return ProviderOutput.model_validate(dict(payload))
+        except ValidationError as exc:
+            raise ValueError(
+                "cache payload must contain only raw ProviderOutput fields"
+            ) from exc
 
     @staticmethod
-    def _canonical_payload(payload: dict[str, Any]) -> bytes:
+    def _canonical_payload(payload: ProviderOutput) -> bytes:
         return json.dumps(
-            payload,
+            payload.model_dump(mode="json"),
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
@@ -195,14 +224,17 @@ class CacheService:
 
     @classmethod
     def _reject_sensitive_payload(cls, value: Any) -> None:
-        if isinstance(value, dict):
+        if isinstance(value, Mapping):
             for key, item in value.items():
                 normalized = "".join(
                     character
                     for character in str(key).casefold()
                     if character.isalnum()
                 )
-                if normalized in _SENSITIVE_KEYS:
+                if any(
+                    normalized == sensitive or normalized.endswith(sensitive)
+                    for sensitive in _SENSITIVE_KEYS
+                ):
                     raise SensitiveCachePayloadError(
                         f"cache payload contains prohibited sensitive field: {key}"
                     )
