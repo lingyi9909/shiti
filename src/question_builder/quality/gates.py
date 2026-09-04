@@ -15,10 +15,13 @@ from question_builder.domain.final import FinalQuestionRecord
 from question_builder.domain.matching import MatchedQuestion
 from question_builder.domain.quality import QualityStage, RejectedRecord, RejectReason
 from question_builder.domain.question import QuestionCandidate
+from question_builder.export.markdown import QuestionContentError, render_question_markdown
 from question_builder.metadata.normalizer import slim_question_md5
 from question_builder.recognition.contracts import (
     ImageClass,
     RecognitionRequest,
+    RecognitionResult,
+    RecognitionTask,
 )
 from question_builder.recognition.router import (
     RecognitionDecision,
@@ -251,6 +254,19 @@ def _canonical_content(content: str) -> str:
     return " ".join(content.split())
 
 
+def _fallback_is_verified(
+    primary: RecognitionResult,
+    fallback: RecognitionResult | None,
+    threshold: float,
+) -> bool:
+    return bool(
+        fallback is not None
+        and fallback.normalized_score >= threshold
+        and (primary.provider, primary.model) != (fallback.provider, fallback.model)
+        and _canonical_content(primary.content) == _canonical_content(fallback.content)
+    )
+
+
 def _recognition_gate(
     context: QualityGateContext,
     thresholds: QualityThresholds,
@@ -301,13 +317,30 @@ def _recognition_gate(
             )
 
         fallback = routing.fallback_result
+        multimodal_reason = routing.reason in {
+            "question_screenshot_multimodal_verified",
+            "multimodal_fallback_verified",
+        }
         if routing.reason == "fallback_verified":
-            if (
-                fallback is None
-                or fallback.normalized_score < threshold
-                or (primary.provider, primary.model) == (fallback.provider, fallback.model)
-                or _canonical_content(primary.content) != _canonical_content(fallback.content)
-                or result != fallback
+            if not _fallback_is_verified(primary, fallback, threshold) or result != fallback:
+                return _reject(
+                    context,
+                    QualityStage.RECOGNITION,
+                    RejectReason.OCR_LOW_CONFIDENCE,
+                    {"block_id": evidence.block_id, "check": "fallback_verification"},
+                )
+        elif multimodal_reason:
+            if result.task is not RecognitionTask.LLM:
+                return _reject(
+                    context,
+                    QualityStage.RECOGNITION,
+                    RejectReason.OCR_LOW_CONFIDENCE,
+                    {"block_id": evidence.block_id, "check": "multimodal_result"},
+                )
+            if primary.normalized_score < threshold and not _fallback_is_verified(
+                primary,
+                fallback,
+                threshold,
             ):
                 return _reject(
                     context,
@@ -377,6 +410,17 @@ def _split_gate(
                 "boundary_unique": split.boundary_unique,
             },
         )
+    if context.candidate_id != split.question.question_candidate_id:
+        return _reject(
+            context,
+            QualityStage.QUESTION_SPLIT,
+            RejectReason.QUESTION_CONTENT_INCOMPLETE,
+            {
+                "check": "candidate_identity_continuity",
+                "candidate_id": context.candidate_id,
+                "question_candidate_id": split.question.question_candidate_id,
+            },
+        )
     if not split.structure_consistent or split.unassigned_critical_blocks:
         return _reject(
             context,
@@ -404,6 +448,15 @@ def _answer_sources_exist(
     return not missing, missing
 
 
+def _question_identity(question: QuestionCandidate) -> dict[str, object]:
+    return {
+        "question_candidate_id": question.question_candidate_id,
+        "document_id": question.document_id,
+        "content_blocks": list(question.content_blocks),
+        "question_number": question.question_number,
+    }
+
+
 def _answer_gate(
     context: QualityGateContext,
     thresholds: QualityThresholds,
@@ -423,6 +476,25 @@ def _answer_gate(
             QualityStage.ANSWER_MATCH,
             RejectReason.ANSWER_MATCH_AMBIGUOUS,
             {"check": "matched_question"},
+        )
+
+    split_question = context.split.question
+    if split_question is None or _question_identity(matched.question) != _question_identity(
+        split_question
+    ):
+        return _reject(
+            context,
+            QualityStage.ANSWER_MATCH,
+            RejectReason.ANSWER_MATCH_AMBIGUOUS,
+            {
+                "check": "question_identity_continuity",
+                "split_question": (
+                    _question_identity(split_question)
+                    if split_question is not None
+                    else None
+                ),
+                "matched_question": _question_identity(matched.question),
+            },
         )
 
     sources_exist, missing_sources = _answer_sources_exist(context, matched)
@@ -565,6 +637,53 @@ def _safe_image_name(name: str) -> bool:
     return bool(name) and not path.is_absolute() and ".." not in path.parts and len(path.parts) == 1
 
 
+def _matched_source_files(
+    question_document: DocumentIR,
+    answer_document: DocumentIR,
+) -> list[str]:
+    files: list[str] = []
+    for source_file in (question_document.source_file, answer_document.source_file):
+        if source_file not in files:
+            files.append(source_file)
+    return files
+
+
+def _validate_final_image_refs(
+    context: QualityGateContext,
+    record: FinalQuestionRecord,
+    image_dir: Path | None,
+) -> QualityGateResult | None:
+    for field_name, value in (
+        ("text_question", record.text_question),
+        ("text_answer", record.text_answer),
+        ("answer_analysis", record.answer_analysis),
+    ):
+        for image_name in _IMAGE_REF.findall(value):
+            if not _safe_image_name(image_name):
+                return _reject(
+                    context,
+                    QualityStage.FINAL_CONTRACT,
+                    RejectReason.IMAGE_MISSING,
+                    {
+                        "image": image_name,
+                        "field": field_name,
+                        "check": "unsafe_image_reference",
+                    },
+                )
+            if image_dir is None or not (image_dir / image_name).is_file():
+                return _reject(
+                    context,
+                    QualityStage.FINAL_CONTRACT,
+                    RejectReason.IMAGE_MISSING,
+                    {
+                        "image": image_name,
+                        "field": field_name,
+                        "check": "image_file",
+                    },
+                )
+    return None
+
+
 def _final_gate(
     context: QualityGateContext,
     image_dir: Path | None,
@@ -573,6 +692,75 @@ def _final_gate(
     if rejection is not None:
         return rejection
     assert record is not None
+
+    matched = context.answer.matched
+    if matched is None:
+        return _reject(
+            context,
+            QualityStage.FINAL_CONTRACT,
+            RejectReason.SCHEMA_VALIDATION_FAILED,
+            {"check": "matched_question_missing"},
+        )
+    documents = _documents_by_id(context)
+    question_document = documents.get(matched.question.document_id)
+    answer_document = documents.get(matched.answer.document_id)
+    if question_document is None or answer_document is None:
+        return _reject(
+            context,
+            QualityStage.FINAL_CONTRACT,
+            RejectReason.SCHEMA_VALIDATION_FAILED,
+            {
+                "check": "matched_source_document",
+                "question_document": matched.question.document_id,
+                "answer_document": matched.answer.document_id,
+            },
+        )
+    try:
+        expected_question = render_question_markdown(
+            question_document,
+            matched.question.content_blocks,
+        )
+    except QuestionContentError as exc:
+        return _reject(
+            context,
+            QualityStage.FINAL_CONTRACT,
+            RejectReason.SCHEMA_VALIDATION_FAILED,
+            {"check": "text_question_source_binding", "error": str(exc)},
+        )
+    if record.text_question != expected_question:
+        return _reject(
+            context,
+            QualityStage.FINAL_CONTRACT,
+            RejectReason.SCHEMA_VALIDATION_FAILED,
+            {
+                "check": "text_question_source_binding",
+                "expected": expected_question,
+                "actual": record.text_question,
+            },
+        )
+    if record.text_answer != matched.answer.answer:
+        return _reject(
+            context,
+            QualityStage.FINAL_CONTRACT,
+            RejectReason.SCHEMA_VALIDATION_FAILED,
+            {
+                "check": "text_answer_source_binding",
+                "expected": matched.answer.answer,
+                "actual": record.text_answer,
+            },
+        )
+    expected_analysis = matched.answer.analysis.strip() or "略"
+    if record.answer_analysis != expected_analysis:
+        return _reject(
+            context,
+            QualityStage.FINAL_CONTRACT,
+            RejectReason.SCHEMA_VALIDATION_FAILED,
+            {
+                "check": "answer_analysis_source_binding",
+                "expected": expected_analysis,
+                "actual": record.answer_analysis,
+            },
+        )
 
     try:
         static_info = json.loads(record.static_info)
@@ -589,6 +777,33 @@ def _final_gate(
             QualityStage.FINAL_CONTRACT,
             RejectReason.SCHEMA_VALIDATION_FAILED,
             {"check": "static_info"},
+        )
+
+    expected_provenance: dict[str, object] = {
+        "source_question_blocks": list(matched.question.content_blocks),
+        "source_answer_blocks": list(matched.answer.source_blocks),
+        "source_files": _matched_source_files(question_document, answer_document),
+    }
+    for field_name, expected_value in expected_provenance.items():
+        if static_info.get(field_name) != expected_value:
+            return _reject(
+                context,
+                QualityStage.FINAL_CONTRACT,
+                RejectReason.SCHEMA_VALIDATION_FAILED,
+                {
+                    "check": field_name,
+                    "expected": expected_value,
+                    "actual": static_info.get(field_name),
+                },
+            )
+
+    pipeline_version = static_info.get("pipeline_version")
+    if not isinstance(pipeline_version, str) or not pipeline_version.strip():
+        return _reject(
+            context,
+            QualityStage.FINAL_CONTRACT,
+            RejectReason.SCHEMA_VALIDATION_FAILED,
+            {"check": "pipeline_version", "value": pipeline_version},
         )
     if static_info.get("md5_version") != "slim_md5_v1":
         return _reject(
@@ -610,8 +825,8 @@ def _final_gate(
             },
         )
 
-    image_refs = tuple(_IMAGE_REF.findall(record.text_question))
-    expected_picture_flag = 1 if image_refs else 0
+    question_image_refs = tuple(_IMAGE_REF.findall(record.text_question))
+    expected_picture_flag = 1 if question_image_refs else 0
     if record.is_pic_included != expected_picture_flag:
         return _reject(
             context,
@@ -623,21 +838,9 @@ def _final_gate(
                 "actual": record.is_pic_included,
             },
         )
-    for image_name in image_refs:
-        if not _safe_image_name(image_name):
-            return _reject(
-                context,
-                QualityStage.FINAL_CONTRACT,
-                RejectReason.IMAGE_MISSING,
-                {"image": image_name, "check": "unsafe_image_reference"},
-            )
-        if image_dir is None or not (image_dir / image_name).is_file():
-            return _reject(
-                context,
-                QualityStage.FINAL_CONTRACT,
-                RejectReason.IMAGE_MISSING,
-                {"image": image_name, "check": "image_file"},
-            )
+    image_rejection = _validate_final_image_refs(context, record, image_dir)
+    if image_rejection is not None:
+        return image_rejection
 
     try:
         serialized = json.loads(record.model_dump_json())
