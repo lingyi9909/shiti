@@ -12,7 +12,7 @@ jobs:
       - name: Checkout exact Task 10 blocker RED head
         uses: actions/checkout@v4
         with:
-          ref: 37b6ceb61aef1ad0a686428f65e785f66bfb91e8
+          ref: 2a0527e3a4f8839571b137d0e560d942ac2e8dd8
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
