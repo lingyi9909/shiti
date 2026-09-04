@@ -88,6 +88,7 @@ def _question(
 
 def _matched(
     *,
+    question: QuestionCandidate | None = None,
     match_score: float = 0.999,
     second_best_score: float | None = 0.50,
     verifier_score: float | None = 0.999,
@@ -97,23 +98,23 @@ def _matched(
     verifier_decision: str = "PASS",
     verifier_source_backed: bool = True,
 ) -> MatchedQuestion:
-    question = _question()
+    current_question = question or _question()
     answer = AnswerCandidate(
         answer_candidate_id="ac1",
         document_id="adoc",
-        question_number="1",
+        question_number=current_question.question_number,
         answer="A",
         analysis="略",
         source_blocks=("a1",),
         extract_score=0.999,
     )
     evidence = MatchEvidence(
-        question_candidate_id="qc1",
+        question_candidate_id=current_question.question_candidate_id,
         answer_candidate_id="ac1",
         match_score=match_score,
         second_best_score=second_best_score,
         verifier_score=verifier_score,
-        question_source_blocks=("q1",),
+        question_source_blocks=current_question.content_blocks,
         answer_source_blocks=("a1",),
         evidence={
             "same_cluster": same_cluster,
@@ -123,7 +124,7 @@ def _matched(
             "verifier_source_backed": verifier_source_backed,
         },
     )
-    return MatchedQuestion(question=question, answer=answer, evidence=evidence)
+    return MatchedQuestion(question=current_question, answer=answer, evidence=evidence)
 
 
 def _final_payload(
@@ -132,6 +133,7 @@ def _final_payload(
     is_pic_included: int = 0,
     language: str = "zh",
     md5: str | None = None,
+    source_question_blocks: tuple[str, ...] = ("q1",),
 ) -> dict[str, object]:
     static_info = json.dumps(
         {
@@ -141,7 +143,7 @@ def _final_payload(
             "slim_question_md5": md5 or slim_question_md5(text_question),
             "source_answer_blocks": ["a1"],
             "source_files": ["questions.docx", "answers.docx"],
-            "source_question_blocks": ["q1"],
+            "source_question_blocks": list(source_question_blocks),
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -453,33 +455,78 @@ def test_final_gate_recomputes_md5_and_rejects_schema_tampering() -> None:
 
 
 def test_final_gate_verifies_referenced_image_file_exists(tmp_path: Path) -> None:
+    question = _question(content_blocks=("q1", "qimg"))
+    question_document = _question_document(
+        blocks=(
+            _block("q1", 1, raw_text="1. 看图作答"),
+            _block(
+                "qimg",
+                2,
+                block_type="image",
+                metadata={"asset_filename": "missing.png"},
+            ),
+        )
+    )
     text_question = '1. 看图作答\n\n<img src="image/missing.png">'
     payload = _final_payload(
         text_question=text_question,
         is_pic_included=1,
+        source_question_blocks=question.content_blocks,
     )
     image_dir = tmp_path / "image"
     image_dir.mkdir()
 
-    result = _result(_context(final_record=payload), image_dir=image_dir)
+    result = _result(
+        _context(
+            question_document=question_document,
+            split=SplitGateEvidence(question=question),
+            answer=AnswerGateEvidence(matched=_matched(question=question)),
+            final_record=payload,
+        ),
+        image_dir=image_dir,
+    )
 
     assert result.rejection is not None
     assert result.rejection.reason_code is RejectReason.IMAGE_MISSING
 
 
 def test_full_valid_chain_passes_with_raw_or_typed_final_record(tmp_path: Path) -> None:
+    question = _question(content_blocks=("q1", "qimg"))
+    question_document = _question_document(
+        blocks=(
+            _block("q1", 1, raw_text="1. 看图作答"),
+            _block(
+                "qimg",
+                2,
+                block_type="image",
+                metadata={"asset_filename": "present.png"},
+            ),
+        )
+    )
     text_question = '1. 看图作答\n\n<img src="image/present.png">'
     payload = _final_payload(
         text_question=text_question,
         is_pic_included=1,
+        source_question_blocks=question.content_blocks,
     )
     image_dir = tmp_path / "image"
     image_dir.mkdir()
     (image_dir / "present.png").write_bytes(b"png")
+    context_kwargs = {
+        "question_document": question_document,
+        "split": SplitGateEvidence(question=question),
+        "answer": AnswerGateEvidence(matched=_matched(question=question)),
+    }
 
-    raw_result = _result(_context(final_record=payload), image_dir=image_dir)
+    raw_result = _result(
+        _context(final_record=payload, **context_kwargs),
+        image_dir=image_dir,
+    )
     typed_result = _result(
-        _context(final_record=FinalQuestionRecord.model_validate(payload)),
+        _context(
+            final_record=FinalQuestionRecord.model_validate(payload),
+            **context_kwargs,
+        ),
         image_dir=image_dir,
     )
 
