@@ -48,7 +48,10 @@ async def test_run_store_persists_required_schema_and_versioned_run_metadata(tmp
             prompt_version="ocr-v1",
             content_hash="c" * 64,
             latency_ms=12.5,
+            raw_score=0.96,
+            raw_score_reference="provider_confidence",
             normalized_score=0.99,
+            calibration_id="provider-a/model-v1/text_ocr@v1",
             cache_hit=False,
             fallback_reason=None,
             token_usage=321,
@@ -60,6 +63,9 @@ async def test_run_store_persists_required_schema_and_versioned_run_metadata(tmp
     assert calls[0].model == "model-v1"
     assert calls[0].prompt_version == "ocr-v1"
     assert calls[0].content_hash == "c" * 64
+    assert calls[0].raw_score == pytest.approx(0.96)
+    assert calls[0].raw_score_reference == "provider_confidence"
+    assert calls[0].calibration_id == "provider-a/model-v1/text_ocr@v1"
     assert calls[0].token_usage == 321
 
     with sqlite3.connect(db_path) as connection:

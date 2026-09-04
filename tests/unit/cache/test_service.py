@@ -10,6 +10,7 @@ from question_builder.cache.service import (
     CacheService,
     SensitiveCachePayloadError,
 )
+from question_builder.recognition.contracts import ProviderOutput
 
 
 def _key() -> CacheKey:
@@ -22,6 +23,16 @@ def _key() -> CacheKey:
     )
 
 
+def _output(content: str = "识别结果") -> ProviderOutput:
+    return ProviderOutput(
+        request_id="req-1",
+        latency_ms=12.5,
+        raw_score=0.96,
+        raw_score_reference="provider_confidence",
+        content=content,
+    )
+
+
 @pytest.mark.asyncio
 async def test_identical_versioned_cache_key_hits_and_round_trips_payload(tmp_path) -> None:
     service = CacheService(
@@ -30,7 +41,7 @@ async def test_identical_versioned_cache_key_hits_and_round_trips_payload(tmp_pa
     )
     await service.initialize()
     key = _key()
-    payload = {"content": "识别结果", "normalized_score": 0.99}
+    payload = _output()
 
     stored = await service.put(key, payload)
     loaded = await service.get(key)
@@ -62,7 +73,7 @@ async def test_any_cache_identity_version_change_is_a_miss(
     )
     await service.initialize()
     key = _key()
-    await service.put(key, {"content": "cached"})
+    await service.put(key, _output("cached"))
 
     changed = replace(key, **{field: value})
 
@@ -78,14 +89,14 @@ async def test_cache_payload_is_immutable_for_an_existing_key(tmp_path) -> None:
     await service.initialize()
     key = _key()
 
-    first = await service.put(key, {"content": "stable"})
-    second = await service.put(key, {"content": "stable"})
+    first = await service.put(key, _output("stable"))
+    second = await service.put(key, _output("stable"))
     assert second == first
 
     with pytest.raises(CacheConflictError):
-        await service.put(key, {"content": "different"})
+        await service.put(key, _output("different"))
 
-    assert await service.get(key) == {"content": "stable"}
+    assert await service.get(key) == _output("stable")
 
 
 @pytest.mark.asyncio

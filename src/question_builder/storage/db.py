@@ -54,7 +54,21 @@ class ProviderCallRecord:
     normalized_score: float | None
     cache_hit: bool
     fallback_reason: str | None
+    raw_score: float | None = None
+    raw_score_reference: str | None = None
+    calibration_id: str | None = None
     token_usage: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.normalized_score is not None and (
+            self.raw_score is None
+            or not self.raw_score_reference
+            or not self.calibration_id
+        ):
+            raise ValueError(
+                "normalized provider call requires raw score, raw score reference, "
+                "and calibration id"
+            )
 
 
 _SCHEMA = """
@@ -89,7 +103,10 @@ CREATE TABLE IF NOT EXISTS provider_calls (
     prompt_version TEXT NOT NULL,
     content_hash TEXT NOT NULL,
     latency_ms REAL NOT NULL,
+    raw_score REAL,
+    raw_score_reference TEXT,
     normalized_score REAL,
+    calibration_id TEXT,
     cache_hit INTEGER NOT NULL CHECK (cache_hit IN (0, 1)),
     fallback_reason TEXT,
     token_usage INTEGER,
@@ -109,6 +126,12 @@ CREATE TABLE IF NOT EXISTS cache_index (
     created_at TEXT NOT NULL
 );
 """
+
+_PROVIDER_CALL_PROVENANCE_COLUMNS = {
+    "raw_score": "REAL",
+    "raw_score_reference": "TEXT",
+    "calibration_id": "TEXT",
+}
 
 _ALLOWED_TRANSITIONS: dict[StageState, frozenset[StageState]] = {
     StageState.PENDING: frozenset({StageState.RUNNING}),
@@ -147,11 +170,24 @@ def compute_run_fingerprint(*, input_hash: str, config_hash: str, pipeline_versi
     return "run_" + hashlib.sha256(canonical).hexdigest()
 
 
+async def _ensure_provider_call_provenance_columns(
+    connection: aiosqlite.Connection,
+) -> None:
+    cursor = await connection.execute("PRAGMA table_info(provider_calls)")
+    existing_columns = {str(row[1]) for row in await cursor.fetchall()}
+    for column_name, column_type in _PROVIDER_CALL_PROVENANCE_COLUMNS.items():
+        if column_name not in existing_columns:
+            await connection.execute(
+                f"ALTER TABLE provider_calls ADD COLUMN {column_name} {column_type}"
+            )
+
+
 async def ensure_storage_schema(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(db_path) as connection:
         await connection.execute("PRAGMA foreign_keys = ON")
         await connection.executescript(_SCHEMA)
+        await _ensure_provider_call_provenance_columns(connection)
         await connection.commit()
 
 
@@ -312,9 +348,10 @@ class RunStore:
                 """
                 INSERT INTO provider_calls (
                     run_id, stage, provider, model, task, request_id,
-                    prompt_version, content_hash, latency_ms, normalized_score,
+                    prompt_version, content_hash, latency_ms, raw_score,
+                    raw_score_reference, normalized_score, calibration_id,
                     cache_hit, fallback_reason, token_usage, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     call.run_id,
@@ -326,7 +363,10 @@ class RunStore:
                     call.prompt_version,
                     call.content_hash,
                     call.latency_ms,
+                    call.raw_score,
+                    call.raw_score_reference,
                     call.normalized_score,
+                    call.calibration_id,
                     int(call.cache_hit),
                     call.fallback_reason,
                     call.token_usage,
@@ -340,7 +380,8 @@ class RunStore:
             cursor = await connection.execute(
                 """
                 SELECT run_id, stage, provider, model, task, request_id,
-                       prompt_version, content_hash, latency_ms, normalized_score,
+                       prompt_version, content_hash, latency_ms, raw_score,
+                       raw_score_reference, normalized_score, calibration_id,
                        cache_hit, fallback_reason, token_usage
                 FROM provider_calls
                 WHERE run_id = ?
@@ -360,10 +401,13 @@ class RunStore:
                 prompt_version=str(row[6]),
                 content_hash=str(row[7]),
                 latency_ms=float(row[8]),
-                normalized_score=None if row[9] is None else float(row[9]),
-                cache_hit=bool(row[10]),
-                fallback_reason=None if row[11] is None else str(row[11]),
-                token_usage=None if row[12] is None else int(row[12]),
+                raw_score=None if row[9] is None else float(row[9]),
+                raw_score_reference=None if row[10] is None else str(row[10]),
+                normalized_score=None if row[11] is None else float(row[11]),
+                calibration_id=None if row[12] is None else str(row[12]),
+                cache_hit=bool(row[13]),
+                fallback_reason=None if row[14] is None else str(row[14]),
+                token_usage=None if row[15] is None else int(row[15]),
             )
             for row in rows
         )
