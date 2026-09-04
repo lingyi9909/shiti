@@ -9,14 +9,18 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout exact Task 10 blocker RED head
+      - name: Checkout exact Task 10 blocker GREEN head
         uses: actions/checkout@v4
         with:
-          ref: 2a0527e3a4f8839571b137d0e560d942ac2e8dd8
+          ref: cac00e4555acbfba081b005321d082faae9ac11b
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install
         run: python -m pip install -e '.[dev]'
-      - name: Task 10 blocker RED
-        run: python -m pytest tests/unit/cache/test_calibration_cache_blockers.py tests/unit/storage/test_provider_call_provenance.py -v
+      - name: Task 10 storage and cache
+        run: python -m pytest tests/unit/storage tests/unit/cache -v
+      - name: Ruff
+        run: python -m ruff check src tests
+      - name: Mypy
+        run: python -m mypy src/question_builder/config src/question_builder/domain src/question_builder/parser src/question_builder/recognition src/question_builder/understanding src/question_builder/splitter src/question_builder/answer src/question_builder/matching src/question_builder/metadata src/question_builder/quality src/question_builder/storage src/question_builder/cache src/question_builder/export
