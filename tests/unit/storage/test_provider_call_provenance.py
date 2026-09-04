@@ -45,3 +45,22 @@ async def test_provider_call_round_trip_preserves_raw_and_calibration_provenance
     assert calls[0].calibration_id == "provider-a/model-v1/text_ocr@v2"
     assert calls[0].model == "model-v1"
     assert calls[0].token_usage == 321
+
+
+def test_normalized_provider_call_requires_raw_evidence_and_calibration_id() -> None:
+    with pytest.raises(ValueError, match="normalized provider call requires"):
+        ProviderCallRecord(
+            run_id="run-1",
+            stage="recognition",
+            provider="provider-a",
+            model="model-v1",
+            task="text_ocr",
+            request_id="req-1",
+            prompt_version="ocr-v1",
+            content_hash="c" * 64,
+            latency_ms=12.5,
+            normalized_score=0.94,
+            cache_hit=False,
+            fallback_reason=None,
+            token_usage=321,
+        )
