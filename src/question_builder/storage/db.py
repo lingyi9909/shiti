@@ -54,6 +54,7 @@ class ProviderCallRecord:
     normalized_score: float | None
     cache_hit: bool
     fallback_reason: str | None
+    token_usage: int | None = None
 
 
 _SCHEMA = """
@@ -91,6 +92,7 @@ CREATE TABLE IF NOT EXISTS provider_calls (
     normalized_score REAL,
     cache_hit INTEGER NOT NULL CHECK (cache_hit IN (0, 1)),
     fallback_reason TEXT,
+    token_usage INTEGER,
     created_at TEXT NOT NULL,
     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
 );
@@ -283,7 +285,6 @@ class RunStore:
         *,
         subject_id: str = "__run__",
     ) -> str | None:
-        terminal = {StageState.COMPLETED, StageState.REJECTED}
         async with aiosqlite.connect(self.db_path) as connection:
             for stage in stages:
                 _require_nonempty(stage, "stage")
@@ -297,7 +298,10 @@ class RunStore:
                 row = await cursor.fetchone()
                 if row is None:
                     return stage
-                if StageState(str(row[0])) not in terminal:
+                state = StageState(str(row[0]))
+                if state is StageState.REJECTED:
+                    return None
+                if state is not StageState.COMPLETED:
                     return stage
         return None
 
@@ -309,8 +313,8 @@ class RunStore:
                 INSERT INTO provider_calls (
                     run_id, stage, provider, model, task, request_id,
                     prompt_version, content_hash, latency_ms, normalized_score,
-                    cache_hit, fallback_reason, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    cache_hit, fallback_reason, token_usage, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     call.run_id,
@@ -325,6 +329,7 @@ class RunStore:
                     call.normalized_score,
                     int(call.cache_hit),
                     call.fallback_reason,
+                    call.token_usage,
                     _utc_now(),
                 ),
             )
@@ -336,7 +341,7 @@ class RunStore:
                 """
                 SELECT run_id, stage, provider, model, task, request_id,
                        prompt_version, content_hash, latency_ms, normalized_score,
-                       cache_hit, fallback_reason
+                       cache_hit, fallback_reason, token_usage
                 FROM provider_calls
                 WHERE run_id = ?
                 ORDER BY id ASC
@@ -358,6 +363,7 @@ class RunStore:
                 normalized_score=None if row[9] is None else float(row[9]),
                 cache_hit=bool(row[10]),
                 fallback_reason=None if row[11] is None else str(row[11]),
+                token_usage=None if row[12] is None else int(row[12]),
             )
             for row in rows
         )
