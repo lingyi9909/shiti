@@ -20,6 +20,22 @@ jobs:
         run: python -m pip install -e '.[dev]'
       - name: Task 10 storage and cache
         run: python -m pytest tests/unit/storage tests/unit/cache -v
+      - name: Task 9 quality regression
+        run: python -m pytest tests/unit/quality -v
+      - name: Task 8 metadata and final contract regression
+        run: python -m pytest tests/unit/metadata tests/unit/export/test_final_contract.py -v
+      - name: Task 7 matching regression
+        run: python -m pytest tests/unit/matching tests/golden/test_answer_matching_precision.py -v
+      - name: Task 6 answer regression
+        run: python -m pytest tests/unit/answer -v
+      - name: Task 5 splitter regression
+        run: python -m pytest tests/unit/splitter tests/golden/test_question_reconstruction.py -v
+      - name: Task 4 understanding regression
+        run: python -m pytest tests/unit/understanding -v
+      - name: Task 3 recognition regression
+        run: python -m pytest tests/contract tests/unit/recognition -v
+      - name: Task 0-2 regression
+        run: python -m pytest tests/unit/test_config.py tests/unit/test_domain_models.py tests/unit/parser tests/golden/test_basic_document_ir.py tests/golden/test_advanced_document_ir.py -v
       - name: Ruff
         run: python -m ruff check src tests
       - name: Mypy
