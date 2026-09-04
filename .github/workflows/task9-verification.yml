@@ -9,14 +9,14 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout exact Task 9 blocker RED head
+      - name: Checkout exact Task 9 blocker GREEN head
         uses: actions/checkout@v4
         with:
-          ref: ed421538a9bfbb0a435882294111ccf82bcd395d
+          ref: 6ef3044026e61cf93b63c0326806157b2e467b90
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install
         run: python -m pip install -e '.[dev]'
-      - name: Task 9 blocker RED
+      - name: Task 9 blocker GREEN
         run: python -m pytest tests/unit/quality -v
