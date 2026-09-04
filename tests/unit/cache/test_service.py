@@ -51,7 +51,11 @@ async def test_identical_versioned_cache_key_hits_and_round_trips_payload(tmp_pa
         ("recognition_task", "formula_ocr"),
     ],
 )
-async def test_any_cache_identity_version_change_is_a_miss(tmp_path, field: str, value: str) -> None:
+async def test_any_cache_identity_version_change_is_a_miss(
+    tmp_path,
+    field: str,
+    value: str,
+) -> None:
     service = CacheService(
         db_path=tmp_path / "state.sqlite3",
         cache_dir=tmp_path / "cache",
