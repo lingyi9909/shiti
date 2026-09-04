@@ -197,7 +197,11 @@ class CacheService:
     def _reject_sensitive_payload(cls, value: Any) -> None:
         if isinstance(value, dict):
             for key, item in value.items():
-                normalized = "".join(character for character in str(key).casefold() if character.isalnum())
+                normalized = "".join(
+                    character
+                    for character in str(key).casefold()
+                    if character.isalnum()
+                )
                 if normalized in _SENSITIVE_KEYS:
                     raise SensitiveCachePayloadError(
                         f"cache payload contains prohibited sensitive field: {key}"
