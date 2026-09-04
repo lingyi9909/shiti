@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from question_builder.domain.answer import AnswerCandidate
 from question_builder.domain.document import ContentBlock, DocumentIR
-from question_builder.domain.matching import MatchEvidence, MatchedQuestion
+from question_builder.domain.matching import MatchedQuestion, MatchEvidence
 from question_builder.domain.question import QuestionCandidate
 from question_builder.storage.workspace import WorkspaceStore
 
