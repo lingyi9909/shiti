@@ -9,10 +9,10 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout exact Task 10 blocker GREEN head
+      - name: Checkout exact formal Task 10 blocker head
         uses: actions/checkout@v4
         with:
-          ref: 52e424af8cd9aeb71da0227322cb28109bf3378a
+          ref: 36156f1184310f7e045be20202cdef2e180110bd
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
