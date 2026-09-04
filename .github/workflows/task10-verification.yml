@@ -9,14 +9,14 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout exact Task 10 RED head
+      - name: Checkout exact Task 10 behavior RED head
         uses: actions/checkout@v4
         with:
-          ref: f50123816e4123f91a4963267a4ac376bd76ece9
+          ref: 859268fe38f9282ea59faca8b87840c5e31e75f5
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install
         run: python -m pip install -e '.[dev]'
-      - name: Task 10 RED
+      - name: Task 10 behavior RED
         run: python -m pytest tests/unit/storage tests/unit/cache -v
