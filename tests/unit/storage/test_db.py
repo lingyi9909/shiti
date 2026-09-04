@@ -51,6 +51,7 @@ async def test_run_store_persists_required_schema_and_versioned_run_metadata(tmp
             normalized_score=0.99,
             cache_hit=False,
             fallback_reason=None,
+            token_usage=321,
         )
     )
     calls = await store.list_provider_calls(run.run_id)
@@ -59,6 +60,7 @@ async def test_run_store_persists_required_schema_and_versioned_run_metadata(tmp
     assert calls[0].model == "model-v1"
     assert calls[0].prompt_version == "ocr-v1"
     assert calls[0].content_hash == "c" * 64
+    assert calls[0].token_usage == 321
 
     with sqlite3.connect(db_path) as connection:
         tables = {
@@ -185,6 +187,27 @@ async def test_resume_starts_at_first_incomplete_stage_and_skips_completed_paid_
         calls[stage] += 1
 
     assert calls == {"parse": 0, "recognition": 0, "split": 1, "answer": 1}
+
+
+@pytest.mark.asyncio
+async def test_rejected_stage_terminates_resume_without_running_downstream(tmp_path) -> None:
+    store = RunStore(tmp_path / "state.sqlite3")
+    await store.initialize()
+    run = await store.ensure_run(
+        input_hash="a" * 64,
+        config_hash="b" * 64,
+        pipeline_version="0.1.0",
+    )
+    stages = ("parse", "recognition", "split", "answer")
+    for stage in stages:
+        await store.ensure_stage(run.run_id, stage)
+
+    await store.transition_stage(run.run_id, "parse", StageState.RUNNING)
+    await store.transition_stage(run.run_id, "parse", StageState.COMPLETED)
+    await store.transition_stage(run.run_id, "recognition", StageState.RUNNING)
+    await store.transition_stage(run.run_id, "recognition", StageState.REJECTED)
+
+    assert await store.first_incomplete_stage(run.run_id, stages) is None
 
 
 def test_run_fingerprint_is_stable_and_changes_with_any_versioned_input() -> None:
