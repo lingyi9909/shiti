@@ -9,14 +9,18 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout exact Task 10 resume provenance RED head
+      - name: Checkout exact latest Task 10 GREEN head
         uses: actions/checkout@v4
         with:
-          ref: 30f4f23eedece07ad38359ec09bf0d01eacd12f9
+          ref: c01b05cc316c548357a2450f13f1a698ee2a84ad
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install
         run: python -m pip install -e '.[dev]'
-      - name: Task 10 resume provenance RED
-        run: python -m pytest tests/unit/storage/test_db.py -v
+      - name: Task 10 focused verification
+        run: python -m pytest tests/unit/storage tests/unit/cache -v
+      - name: Ruff
+        run: python -m ruff check src tests
+      - name: Mypy
+        run: python -m mypy src/question_builder/config src/question_builder/domain src/question_builder/parser src/question_builder/recognition src/question_builder/understanding src/question_builder/splitter src/question_builder/answer src/question_builder/matching src/question_builder/metadata src/question_builder/quality src/question_builder/storage src/question_builder/cache src/question_builder/export
